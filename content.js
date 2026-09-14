@@ -391,23 +391,36 @@ function extractMatchingQuestionData() {
     }
 
     const rowsWithOptions = [];
-    rows.forEach((row, index) => {
+    for (let index = 0; index < rows.length; index++) {
+      const row = rows[index];
       const promptEl = findInShadowDOM('.matching__item-title_inner', row)[0];
       const prompt = promptEl ? promptEl.textContent.trim() : `Row ${index + 1}`;
 
       const dropdownBtn = findInShadowDOM('.dropdown__btn.js-dropdown-btn', row)[0];
-      if (!dropdownBtn) return;
+      if (!dropdownBtn) {
+        console.log(`❌ Matching row ${index + 1} has no dropdown button`);
+        return null;
+      }
 
       // Read-only: open the popup to read its option list, then close it
       // again without selecting anything — extraction must not change state.
       dropdownBtn.click();
-      const options = findInShadowDOM('.dropdown__item.js-dropdown-list-item', row.ownerDocument)
-        .filter((opt) => opt.offsetParent !== null)
-        .map((opt) => (opt.textContent || '').replace(/,\s*\d+\s*of\s*\d+.*$/i, '').trim());
-      dropdownBtn.click();
+      let options;
+      try {
+        options = findInShadowDOM('.dropdown__item.js-dropdown-list-item', row.ownerDocument)
+          .filter((opt) => opt.offsetParent !== null)
+          .map((opt) => (opt.textContent || '').replace(/,\s*\d+\s*of\s*\d+.*$/i, '').trim());
+      } finally {
+        dropdownBtn.click();
+      }
+
+      if (options.length === 0) {
+        console.log(`❌ Matching row ${index + 1} has no readable options`);
+        return null;
+      }
 
       rowsWithOptions.push({ index, prompt, options });
-    });
+    }
 
     if (rowsWithOptions.length === 0) {
       console.log('❌ Could not read any matching row options');
