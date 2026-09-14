@@ -1,5 +1,7 @@
 // Background service worker for handling AI API requests
 
+importScripts('shared.js');
+
 const SYSTEM_PROMPT = `SYSTEM:
 You are an AI assistant that answers multiple-choice questions with extreme precision.
 
@@ -80,38 +82,7 @@ async function getAnswerFromGemini(question, options, apiKey, isMultipleAnswer =
   // Get the available option letters dynamically
   const availableLetters = options.map((_, idx) => String.fromCharCode(65 + idx)).join(', ');
 
-  let prompt;
-  if (isMultipleAnswer) {
-    prompt = `IMPORTANT: This is a multiple-answer question. You MUST select EXACTLY ${requiredAnswers} correct answer(s). Not more, not less.
-
-CRITICAL RULES:
-1. You MUST provide EXACTLY ${requiredAnswers} letters
-2. Separate letters with commas (e.g., "A,B" or "A,C,D")
-3. Only use available letters: ${availableLetters}
-4. No explanation, no extra text, no reasoning
-5. ONLY output the ${requiredAnswers} correct letter(s)
-
-Question: ${question}
-
-Options:
-${formattedOptions}
-
-Answer with EXACTLY ${requiredAnswers} letter(s) separated by commas:`;
-  } else {
-    prompt = `Answer this question with ONLY ONE letter from the available options: ${availableLetters}
-
-CRITICAL RULES:
-1. Output ONLY ONE letter
-2. No explanation, no extra text
-3. Only use available letters: ${availableLetters}
-
-Question: ${question}
-
-Options:
-${formattedOptions}
-
-Answer with only ONE letter:`;
-  }
+  const prompt = buildPrompt(question, options, isMultipleAnswer, requiredAnswers);
 
   const requestBody = {
     contents: [{
@@ -213,50 +184,7 @@ Answer with only ONE letter:`;
 
   console.log('Gemini answer text:', answerText);
 
-  // Get valid letters based on number of options
-  const maxOptionIndex = options.length - 1;
-  const validLetters = options.map((_, idx) => String.fromCharCode(65 + idx)).join('');
-  const validLetterPattern = new RegExp(`[${validLetters}]`, 'g');
-
-  if (isMultipleAnswer) {
-    // Extract multiple letters from response (handles "A,B", "A, B", "A,C,D", etc.)
-    const letterMatches = answerText.match(validLetterPattern);
-    if (!letterMatches || letterMatches.length === 0) {
-      throw new Error(`Invalid answer format from Gemini. Expected letters from ${validLetters}, got: ${answerText}`);
-    }
-
-    // Convert letters to indices and remove duplicates
-    const answerIndices = [...new Set(letterMatches)].map(letter => letter.charCodeAt(0) - 65);
-
-    // Validate we have the correct number of answers
-    if (answerIndices.length !== requiredAnswers) {
-      console.warn(`⚠️ Gemini returned ${answerIndices.length} answers but ${requiredAnswers} were required. Trying to adjust...`);
-
-      // If we have too many, take the first N
-      if (answerIndices.length > requiredAnswers) {
-        answerIndices.splice(requiredAnswers);
-        console.log(`✂️ Trimmed to first ${requiredAnswers} answers:`, answerIndices);
-      } else {
-        // If we have too few, warn but continue
-        console.warn(`⚠️ Using ${answerIndices.length} answers instead of ${requiredAnswers}`);
-      }
-    }
-
-    console.log('Gemini answers:', letterMatches.join(','), 'Indices:', answerIndices);
-    return answerIndices;
-  } else {
-    // Extract single letter from response (handles "A", "A.", "Answer: A", etc.)
-    const letterMatch = answerText.match(validLetterPattern);
-    if (!letterMatch) {
-      throw new Error(`Invalid answer format from Gemini. Expected one letter from ${validLetters}, got: ${answerText}`);
-    }
-
-    const answerLetter = letterMatch[0];
-    const answerIndex = answerLetter.charCodeAt(0) - 65; // Convert A->0, B->1, etc.
-
-    console.log('Gemini answer:', answerLetter, 'Index:', answerIndex);
-    return answerIndex;
-  }
+  return parseAnswerLetters(answerText, options, isMultipleAnswer, requiredAnswers);
 }
 
 async function getAnswerFromOpenAI(question, options, apiKey, isMultipleAnswer = false, requiredAnswers = 1) {
@@ -270,38 +198,7 @@ async function getAnswerFromOpenAI(question, options, apiKey, isMultipleAnswer =
   // Get the available option letters dynamically
   const availableLetters = options.map((_, idx) => String.fromCharCode(65 + idx)).join(', ');
 
-  let prompt;
-  if (isMultipleAnswer) {
-    prompt = `IMPORTANT: This is a multiple-answer question. You MUST select EXACTLY ${requiredAnswers} correct answer(s). Not more, not less.
-
-CRITICAL RULES:
-1. You MUST provide EXACTLY ${requiredAnswers} letters
-2. Separate letters with commas (e.g., "A,B" or "A,C,D")
-3. Only use available letters: ${availableLetters}
-4. No explanation, no extra text, no reasoning
-5. ONLY output the ${requiredAnswers} correct letter(s)
-
-Question: ${question}
-
-Options:
-${formattedOptions}
-
-Answer with EXACTLY ${requiredAnswers} letter(s) separated by commas:`;
-  } else {
-    prompt = `Answer this question with ONLY ONE letter from the available options: ${availableLetters}
-
-CRITICAL RULES:
-1. Output ONLY ONE letter
-2. No explanation, no extra text
-3. Only use available letters: ${availableLetters}
-
-Question: ${question}
-
-Options:
-${formattedOptions}
-
-Answer with only ONE letter:`;
-  }
+  const prompt = buildPrompt(question, options, isMultipleAnswer, requiredAnswers);
 
   const requestBody = {
     model: 'gpt-4o-mini',
@@ -373,49 +270,6 @@ Answer with only ONE letter:`;
 
   console.log('OpenAI raw answer:', answerText);
 
-  // Get valid letters based on number of options
-  const maxOptionIndex = options.length - 1;
-  const validLetters = options.map((_, idx) => String.fromCharCode(65 + idx)).join('');
-  const validLetterPattern = new RegExp(`[${validLetters}]`, 'g');
-
-  if (isMultipleAnswer) {
-    // Extract multiple letters from response (handles "A,B", "A, B", "A,C,D", etc.)
-    const letterMatches = answerText.match(validLetterPattern);
-    if (!letterMatches || letterMatches.length === 0) {
-      throw new Error(`Invalid answer format from OpenAI. Expected letters from ${validLetters}, got: ${answerText}`);
-    }
-
-    // Convert letters to indices and remove duplicates
-    const answerIndices = [...new Set(letterMatches)].map(letter => letter.charCodeAt(0) - 65);
-
-    // Validate we have the correct number of answers
-    if (answerIndices.length !== requiredAnswers) {
-      console.warn(`⚠️ OpenAI returned ${answerIndices.length} answers but ${requiredAnswers} were required. Trying to adjust...`);
-
-      // If we have too many, take the first N
-      if (answerIndices.length > requiredAnswers) {
-        answerIndices.splice(requiredAnswers);
-        console.log(`✂️ Trimmed to first ${requiredAnswers} answers:`, answerIndices);
-      } else {
-        // If we have too few, warn but continue
-        console.warn(`⚠️ Using ${answerIndices.length} answers instead of ${requiredAnswers}`);
-      }
-    }
-
-    console.log('OpenAI answers:', letterMatches.join(','), 'Indices:', answerIndices, 'Model: gpt-4o-mini');
-    return answerIndices;
-  } else {
-    // Extract single letter from response
-    const letterMatch = answerText.match(validLetterPattern);
-    if (!letterMatch) {
-      throw new Error(`Invalid answer format from OpenAI. Expected one letter from ${validLetters}, got: ${answerText}`);
-    }
-
-    const answerLetter = letterMatch[0];
-    const answerIndex = answerLetter.charCodeAt(0) - 65;
-
-    console.log('OpenAI answer:', answerLetter, 'Index:', answerIndex, 'Model: gpt-4o-mini');
-    return answerIndex;
-  }
+  return parseAnswerLetters(answerText, options, isMultipleAnswer, requiredAnswers);
 }
 
