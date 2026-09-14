@@ -485,9 +485,37 @@ function createHelperButton(targetDocument = document) {
     await handleButtonClick(geminiButton, 'gemini', '✨ Get Answer from Gemini');
   });
 
+  // Create Web AI provider select (ChatGPT / Gemini)
+  const webAiSelect = targetDocument.createElement('select');
+  webAiSelect.id = 'netacad-ai-webai-select';
+  webAiSelect.className = 'ai-helper-select';
+
+  const chatgptOption = targetDocument.createElement('option');
+  chatgptOption.value = 'chatgpt-web';
+  chatgptOption.textContent = 'ChatGPT';
+  webAiSelect.appendChild(chatgptOption);
+
+  const geminiWebOption = targetDocument.createElement('option');
+  geminiWebOption.value = 'gemini-web';
+  geminiWebOption.textContent = 'Gemini';
+  webAiSelect.appendChild(geminiWebOption);
+
+  // Create Web AI Button (Green)
+  const webAiButton = targetDocument.createElement('button');
+  webAiButton.id = 'netacad-ai-helper-btn-webai';
+  webAiButton.innerHTML = '🌐 Web AI';
+  webAiButton.className = 'ai-helper-button ai-helper-button-webai';
+
+  webAiButton.addEventListener('click', async () => {
+    const modelType = webAiSelect.value;
+    await handleButtonClick(webAiButton, modelType, '🌐 Web AI');
+  });
+
   // Add buttons to the target document body
   targetDocument.body.appendChild(gptButton);
   targetDocument.body.appendChild(geminiButton);
+  targetDocument.body.appendChild(webAiSelect);
+  targetDocument.body.appendChild(webAiButton);
   console.log('AI helper buttons added to', targetDocument === document ? 'main page' : 'iframe');
 }
 
