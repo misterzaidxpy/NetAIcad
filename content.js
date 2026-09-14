@@ -108,6 +108,20 @@ function getAbsolutePageRect(element) {
   };
 }
 
+// Polls `predicate` every `intervalMs` until it returns truthy or `timeoutMs`
+// elapses. Returns true if the predicate became truthy, false on timeout.
+// This is the ONE shared polling helper — used wherever a fixed timeout was
+// previously load-bearing (SPA navigation settling, async completion-status
+// tracking, iframe/heading readiness).
+async function waitFor(predicate, timeoutMs, intervalMs = 200) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (predicate()) return true;
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+  return predicate();
+}
+
 // Clicks `element`. Netacad's Angular-based custom widgets (confirmed on the
 // quiz's radio buttons) ignore synthetic JS `.click()` events, so if `verify`
 // doesn't report success after a plain click, this falls back to a
@@ -953,7 +967,12 @@ async function openTopic(topic) {
   if (!navigated) {
     throw new Error(`Couldn't navigate to topic ${topic.number} (${topic.name}).`);
   }
-  await new Promise((r) => setTimeout(r, 1500));
+  // robustClick's own internal verify already gives ~600ms of tolerance, but
+  // a slow SPA navigation can still take longer than that to actually swap
+  // the iframe content — poll for the same condition with a longer budget
+  // instead of assuming it's already settled.
+  await waitFor(() => iframeShowsTopic(topic.number), 8000);
+  await new Promise((r) => setTimeout(r, 500));
 }
 
 // --- Module Walker: progress overlay ---
@@ -1211,6 +1230,9 @@ async function walkTopicSections() {
       handled = await handleReadingSection(section);
     }
 
+    // Give Netacad's own async completion tracking a grace period to flip
+    // the class before concluding the section is still incomplete.
+    await waitFor(() => !nextIncomplete.classList.contains('is-incomplete'), 3000);
     const stillIncomplete = nextIncomplete.classList.contains('is-incomplete');
     if (!handled || stillIncomplete) {
       skipped.push(sectionName);
@@ -1250,6 +1272,13 @@ async function startModuleWalk() {
       await openTopic(topic);
 
       const result = await walkTopicSections();
+      if (result.notLoaded) {
+        // Content never loaded for this topic (iframe still loading, or a
+        // topic that renders no headings) — flag it for manual review
+        // instead of silently marking it processed.
+        allSkipped.push(`${topic.name} (content didn't load)`);
+        continue;
+      }
       allSkipped.push(...result.skipped);
 
       if (result.reachedQuiz) {
