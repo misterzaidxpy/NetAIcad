@@ -23,6 +23,223 @@ const max_tokens = 2000; // Increased for Gemini compatibility
 const presence_penalty = 0;
 const frequency_penalty = 0;
 
+const WEB_AI_SITES = {
+  'chatgpt-web': {
+    url: 'https://chatgpt.com/',
+    windowKey: 'chatgpt',
+    siteName: 'ChatGPT',
+  },
+  'gemini-web': {
+    url: 'https://gemini.google.com/app',
+    windowKey: 'gemini',
+    siteName: 'Gemini',
+  },
+};
+
+// In-memory only: service workers can be evicted and this will reset, which
+// is fine — ensureWebAiTab() always re-validates before reusing an entry.
+const webAiWindows = {};
+
+function waitForTabLoad(tabId, timeoutMs = 20000) {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      chrome.tabs.onUpdated.removeListener(listener);
+      reject(new Error('Timed out waiting for the Web AI tab to finish loading.'));
+    }, timeoutMs);
+
+    function listener(updatedTabId, changeInfo) {
+      if (updatedTabId === tabId && changeInfo.status === 'complete') {
+        clearTimeout(timeout);
+        chrome.tabs.onUpdated.removeListener(listener);
+        resolve();
+      }
+    }
+
+    chrome.tabs.onUpdated.addListener(listener);
+
+    // Cover the case where the tab is already 'complete' by the time we get here.
+    chrome.tabs.get(tabId).then((tab) => {
+      if (tab && tab.status === 'complete') {
+        clearTimeout(timeout);
+        chrome.tabs.onUpdated.removeListener(listener);
+        resolve();
+      }
+    }).catch(() => {});
+  });
+}
+
+async function ensureWebAiTab(modelType) {
+  const config = WEB_AI_SITES[modelType];
+  const existing = webAiWindows[config.windowKey];
+
+  if (existing) {
+    try {
+      const tab = await chrome.tabs.get(existing.tabId);
+      if (tab) {
+        return existing.tabId;
+      }
+    } catch (e) {
+      // Tab (or its window) no longer exists; fall through and recreate it.
+    }
+  }
+
+  const win = await chrome.windows.create({
+    url: config.url,
+    type: 'normal',
+    focused: false,
+    width: 480,
+    height: 720,
+    left: 20,
+    top: 20,
+  });
+
+  const tabId = win.tabs[0].id;
+  webAiWindows[config.windowKey] = { windowId: win.id, tabId };
+
+  await waitForTabLoad(tabId);
+  return tabId;
+}
+
+async function chatgptWebAutomationInPage(prompt) {
+  function query(selectors) {
+    for (const sel of selectors) {
+      const el = document.querySelector(sel);
+      if (el) return el;
+    }
+    return null;
+  }
+
+  const input = query(['#prompt-textarea', '[contenteditable="true"][id*="prompt"]', 'div[contenteditable="true"]']);
+  if (!input) {
+    return { success: false, error: 'not-logged-in-or-selector-changed' };
+  }
+
+  input.focus();
+  document.execCommand('selectAll', false, null);
+  document.execCommand('delete', false, null);
+  document.execCommand('insertText', false, prompt);
+  await new Promise((r) => setTimeout(r, 400));
+
+  const sendBtn = query(['[data-testid="send-button"]', 'button[aria-label="Send prompt"]', 'button[aria-label="Send"]']);
+  if (sendBtn) {
+    sendBtn.click();
+  } else {
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  }
+  await new Promise((r) => setTimeout(r, 1500));
+
+  const deadline = Date.now() + 45000;
+  let lastText = '';
+  let stableCount = 0;
+
+  while (Date.now() < deadline) {
+    const stopBtn = query(['[data-testid="stop-button"]', 'button[aria-label="Stop generating"]', 'button[aria-label="Stop streaming"]']);
+    const messages = document.querySelectorAll('[data-message-author-role="assistant"]');
+    const fallback1 = document.querySelectorAll('.markdown.prose');
+    const fallback2 = document.querySelectorAll('.agent-turn');
+    const list = messages.length ? messages : (fallback1.length ? fallback1 : fallback2);
+    const currentText = list.length ? list[list.length - 1].textContent.trim() : '';
+
+    if (!stopBtn && currentText && currentText === lastText) {
+      stableCount++;
+      if (stableCount >= 2) {
+        return { success: true, text: currentText };
+      }
+    } else {
+      stableCount = 0;
+    }
+    lastText = currentText;
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+
+  return lastText ? { success: true, text: lastText } : { success: false, error: 'timeout-no-response' };
+}
+
+async function geminiWebAutomationInPage(prompt) {
+  function query(selectors) {
+    for (const sel of selectors) {
+      const el = document.querySelector(sel);
+      if (el) return el;
+    }
+    return null;
+  }
+
+  const input = query(['.ql-editor[contenteditable="true"]', 'rich-textarea [contenteditable="true"]', 'div[contenteditable="true"]']);
+  if (!input) {
+    return { success: false, error: 'not-logged-in-or-selector-changed' };
+  }
+
+  input.focus();
+  document.execCommand('selectAll', false, null);
+  document.execCommand('delete', false, null);
+  document.execCommand('insertText', false, prompt);
+  await new Promise((r) => setTimeout(r, 400));
+
+  const sendBtn = query(['button[aria-label="Send message"]']);
+  if (sendBtn && !sendBtn.disabled) {
+    sendBtn.click();
+  } else {
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  }
+  await new Promise((r) => setTimeout(r, 1500));
+
+  const deadline = Date.now() + 45000;
+  let lastText = '';
+  let stableCount = 0;
+
+  while (Date.now() < deadline) {
+    const responses = document.querySelectorAll('.model-response-text, message-content, .markdown.markdown-main-panel');
+    const currentText = responses.length ? responses[responses.length - 1].textContent.trim() : '';
+    const busy = document.querySelector('[aria-busy="true"]');
+
+    if (!busy && currentText && currentText === lastText) {
+      stableCount++;
+      if (stableCount >= 2) {
+        return { success: true, text: currentText };
+      }
+    } else {
+      stableCount = 0;
+    }
+    lastText = currentText;
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+
+  return lastText ? { success: true, text: lastText } : { success: false, error: 'timeout-no-response' };
+}
+
+function buildWebAiPrompt(question, options, isMultipleAnswer, requiredAnswers) {
+  const prefix = "Ignore all previous questions and answers in this conversation. Treat the following as a brand-new, unrelated question.\n\n";
+  return prefix + buildPrompt(question, options, isMultipleAnswer, requiredAnswers);
+}
+
+async function askWebAi(modelType, prompt) {
+  const config = WEB_AI_SITES[modelType];
+  const tabId = await ensureWebAiTab(modelType);
+  const func = modelType === 'chatgpt-web' ? chatgptWebAutomationInPage : geminiWebAutomationInPage;
+
+  const results = await chrome.scripting.executeScript({
+    target: { tabId },
+    world: 'MAIN',
+    func,
+    args: [prompt],
+  });
+
+  const result = results && results[0] ? results[0].result : null;
+
+  if (!result || !result.success) {
+    const reason = result ? result.error : 'unknown-error';
+    if (reason === 'not-logged-in-or-selector-changed') {
+      throw new Error(`Could not find the ${config.siteName} chat input. Please make sure you're logged in to ${config.siteName} in the Web AI window that just opened, then click the button again.`);
+    }
+    if (reason === 'timeout-no-response') {
+      throw new Error(`Timed out waiting for a response from ${config.siteName}. Please try again.`);
+    }
+    throw new Error(`${config.siteName} automation failed: ${reason}`);
+  }
+
+  return result.text;
+}
+
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'getAnswer') {
     handleGetAnswer(
@@ -60,6 +277,10 @@ async function handleGetAnswer(question, options, modelType, isMultipleAnswer = 
         throw new Error('Gemini API key not configured. Please set it in the extension popup.');
       }
       answerIndex = await getAnswerFromGemini(question, options, apiKey, isMultipleAnswer, requiredAnswers);
+    } else if (modelType === 'chatgpt-web' || modelType === 'gemini-web') {
+      const prompt = buildWebAiPrompt(question, options, isMultipleAnswer, requiredAnswers);
+      const rawText = await askWebAi(modelType, prompt);
+      answerIndex = parseAnswerLetters(rawText, options, isMultipleAnswer, requiredAnswers);
     } else {
       throw new Error('Unknown model type: ' + modelType);
     }
