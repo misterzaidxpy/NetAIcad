@@ -249,6 +249,30 @@ async function askWebAi(modelType, prompt) {
   return result.text;
 }
 
+async function handleRobustClickCdp(tabId, x, y) {
+  const debuggee = { tabId };
+  await chrome.debugger.attach(debuggee, '1.3');
+  try {
+    await chrome.debugger.sendCommand(debuggee, 'Input.dispatchMouseEvent', {
+      type: 'mousePressed',
+      x,
+      y,
+      button: 'left',
+      clickCount: 1,
+    });
+    await chrome.debugger.sendCommand(debuggee, 'Input.dispatchMouseEvent', {
+      type: 'mouseReleased',
+      x,
+      y,
+      button: 'left',
+      clickCount: 1,
+    });
+    return { success: true };
+  } finally {
+    await chrome.debugger.detach(debuggee).catch(() => {});
+  }
+}
+
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'getAnswer') {
     handleGetAnswer(
@@ -261,6 +285,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       .then(result => sendResponse(result))
       .catch(error => sendResponse({ success: false, error: error.message }));
     return true; // Keep message channel open for async response
+  }
+  if (request.action === 'robustClickCdp') {
+    handleRobustClickCdp(sender.tab.id, request.x, request.y)
+      .then(result => sendResponse(result))
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true;
   }
 });
 

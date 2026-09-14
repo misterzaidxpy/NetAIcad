@@ -78,6 +78,57 @@ function findElementInShadowDOM(root, selector) {
   return null;
 }
 
+// Returns the element's center point in top-page viewport coordinates.
+// Assumes at most one level of iframe nesting (confirmed on the live course:
+// the course-content iframe is not itself further nested).
+function getAbsolutePageRect(element) {
+  const rect = element.getBoundingClientRect();
+  const frame = window.frameElement; // null if this script instance is running in the top frame
+  const frameRect = frame ? frame.getBoundingClientRect() : { left: 0, top: 0 };
+  return {
+    x: frameRect.left + rect.left + rect.width / 2,
+    y: frameRect.top + rect.top + rect.height / 2,
+  };
+}
+
+// Clicks `element`. Netacad's Angular-based custom widgets (confirmed on the
+// quiz's radio buttons) ignore synthetic JS `.click()` events, so if `verify`
+// doesn't report success after a plain click, this falls back to a
+// chrome.debugger-dispatched trusted click via the background script.
+async function robustClick(element, verify) {
+  if (!element) return false;
+
+  if (element.scrollIntoView) {
+    element.scrollIntoView({ block: 'center' });
+    await new Promise((r) => setTimeout(r, 150));
+  }
+
+  element.click();
+  await new Promise((r) => setTimeout(r, 300));
+
+  if (!verify || verify()) {
+    return true;
+  }
+
+  console.log('⚠️ Plain click did not register, retrying via chrome.debugger:', element);
+  const { x, y } = getAbsolutePageRect(element);
+  let cdpResult;
+  try {
+    cdpResult = await chrome.runtime.sendMessage({ action: 'robustClickCdp', x, y });
+  } catch (error) {
+    console.error('❌ robustClickCdp message failed:', error);
+    return false;
+  }
+
+  if (!cdpResult || !cdpResult.success) {
+    console.error('❌ chrome.debugger click fallback failed:', cdpResult && cdpResult.error);
+    return false;
+  }
+
+  await new Promise((r) => setTimeout(r, 300));
+  return !verify || verify();
+}
+
 // Function to extract question and options (based on iframe.js)
 async function extractQuestionData() {
   console.log('=== Starting Question Extraction ===');

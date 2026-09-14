@@ -7,7 +7,8 @@
     "storage",
     "activeTab",
     "scripting",
-    "tabs"
+    "tabs",
+    "debugger"
   ],
   "host_permissions": [
     "*://*.netacad.com/*",
