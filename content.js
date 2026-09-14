@@ -963,9 +963,6 @@ async function handleVideoSection(sectionElements) {
   return completed;
 }
 
-// Temporary stubs — replaced in later tasks.
-const moduleWalkState = { running: false, stopRequested: false };
-function stopModuleWalk() { moduleWalkState.stopRequested = true; }
 // Formative/embedded self-checks (radio/checkbox groups). Per the design
 // spec's explicit decision, any attempted answer is enough — these are
 // ungraded and only need to be attempted to complete the section.
@@ -1031,6 +1028,120 @@ async function handleMatchingSection(sectionElements) {
 
   return true;
 }
+
+const moduleWalkState = { running: false, stopRequested: false };
+
+function stopModuleWalk() {
+  moduleWalkState.stopRequested = true;
+}
+
+async function walkTopicSections() {
+  const skipped = [];
+  const iframe = document.querySelector('iframe');
+  if (!iframe || !iframe.contentDocument) {
+    throw new Error("Couldn't find the course content iframe.");
+  }
+  const contentDoc = iframe.contentDocument;
+
+  let guardCount = 0;
+  while (guardCount < 200) {
+    guardCount++;
+    if (moduleWalkState.stopRequested) {
+      return { skipped, reachedQuiz: false, stopped: true };
+    }
+
+    const headings = findInShadowDOM('.js-heading', contentDoc);
+    const nextIncomplete = headings.find(
+      (h) => h.classList.contains('is-incomplete') && !h.dataset.aiWalkerSkipped
+    );
+    if (!nextIncomplete) {
+      return { skipped, reachedQuiz: false, stopped: false };
+    }
+
+    const sectionName = nextIncomplete.textContent.trim().replace(/^Incomplete\s*/, '');
+    const section = getSectionContainerForHeading(nextIncomplete);
+
+    if (isGradedQuizSection(section)) {
+      return { skipped, reachedQuiz: true, quizName: sectionName, stopped: false };
+    }
+
+    const kind = classifySection(sectionName, section);
+    let handled = false;
+    if (kind === 'video') {
+      handled = await handleVideoSection(section);
+    } else if (kind === 'selfCheck') {
+      handled = await handleSelfCheckSection(section);
+    } else if (kind === 'matching') {
+      handled = await handleMatchingSection(section);
+    } else if (kind === 'clickToReveal') {
+      handled = await handleClickToRevealSection(section);
+    } else if (kind === 'reading') {
+      handled = await handleReadingSection(section);
+    }
+
+    const stillIncomplete = nextIncomplete.classList.contains('is-incomplete');
+    if (!handled || stillIncomplete) {
+      skipped.push(sectionName);
+      nextIncomplete.dataset.aiWalkerSkipped = 'true';
+    }
+  }
+
+  throw new Error('Module walker stopped after 200 sections — this looks like a loop, aborting to be safe.');
+}
+
 async function startModuleWalk() {
-  console.log('startModuleWalk stub: topics =', getRemainingTopicsInCurrentModule());
+  if (moduleWalkState.running) return;
+  moduleWalkState.running = true;
+  moduleWalkState.stopRequested = false;
+
+  createOverlay(document);
+  const walkerButton = document.getElementById('netacad-ai-walker-btn');
+  if (walkerButton) walkerButton.textContent = '⏹ Stop Auto-Complete';
+
+  const allSkipped = [];
+  let processedCount = 0;
+
+  try {
+    const topics = getRemainingTopicsInCurrentModule();
+    if (topics.length === 0) {
+      removeOverlayAfterDelay('Nothing left to complete in this module.');
+      return;
+    }
+
+    for (const topic of topics) {
+      if (moduleWalkState.stopRequested) {
+        removeOverlayAfterDelay('Stopped by user.');
+        return;
+      }
+
+      updateOverlay(`Auto-Complete Module — ${topic.name} (${processedCount + 1}/${topics.length})`);
+      await openTopic(topic);
+
+      const result = await walkTopicSections();
+      allSkipped.push(...result.skipped);
+
+      if (result.reachedQuiz) {
+        removeOverlayAfterDelay(`Reached "${result.quizName}" — use Get Answer / Web AI to continue.`);
+        return;
+      }
+      if (result.stopped) {
+        removeOverlayAfterDelay('Stopped by user.');
+        return;
+      }
+
+      processedCount++;
+    }
+
+    const summary =
+      allSkipped.length > 0
+        ? `Done — ${processedCount}/${topics.length} completed, ${allSkipped.length} need manual review (${allSkipped.join(', ')})`
+        : `Done — ${processedCount}/${topics.length} completed.`;
+    removeOverlayAfterDelay(summary);
+  } catch (error) {
+    console.error('❌ Module walk error:', error);
+    removeOverlayAfterDelay('Error: ' + error.message);
+  } finally {
+    moduleWalkState.running = false;
+    if (walkerButton) walkerButton.textContent = '📖 Auto-Complete Module';
+  }
 }
