@@ -717,8 +717,8 @@ function checkForCourseContent() {
     return;
   }
 
-  const iframe = document.querySelector('iframe');
-  if (!iframe || !iframe.contentDocument) {
+  const iframe = getContentIframe();
+  if (!iframe) {
     return;
   }
 
@@ -891,12 +891,26 @@ if (document.readyState === 'loading') {
 
 // --- Module Walker: outline parsing (main frame only) ---
 
+// Returns the course-content iframe (validated only by having a loaded
+// contentDocument), or null if it's not present/loaded yet. Centralizes what
+// was previously four separate, unvalidated document.querySelector('iframe')
+// calls (checkForCourseContent, getCurrentModuleNumber, iframeShowsTopic, and
+// walkTopicSections) so that if the page ever has more than one iframe, all
+// call sites resolve to the same one consistently.
+// Kept cheap intentionally — doesn't require .js-heading to already be
+// present, since some callers need the iframe before headings render.
+function getContentIframe() {
+  const iframe = document.querySelector('iframe');
+  if (!iframe || !iframe.contentDocument) return null;
+  return iframe;
+}
+
 // The iframe's document.title reliably contains the current topic's number
 // as "... | 5.1. Exploiting Network-Based Vulnerabilities" even when the
 // module-number placeholder earlier in the title is unresolved.
 function getCurrentModuleNumber() {
-  const iframe = document.querySelector('iframe');
-  if (!iframe || !iframe.contentDocument || !iframe.contentDocument.title) return null;
+  const iframe = getContentIframe();
+  if (!iframe || !iframe.contentDocument.title) return null;
   const parts = iframe.contentDocument.title.split('|');
   if (parts.length < 2) return null;
   const match = parts[1].trim().match(/^(\d+)\./);
@@ -951,12 +965,29 @@ function getRemainingTopicsInCurrentModule() {
   if (allTopics.length === 0) {
     throw new Error(`Couldn't find the module outline (no topics found under Module ${moduleNumber}).`);
   }
-  return allTopics.filter((t) => !t.isCompleted);
+  // Lab/Practice topics are recognizable by their OUTLINE (topic) name and
+  // open external tools the walker doesn't support — never open them. (See
+  // getLabPracticeTopicNamesInCurrentModule, which surfaces these by name
+  // for the caller's manual-review summary instead of dropping them silently.)
+  return allTopics.filter((t) => !t.isCompleted && !/^(lab|practice)\s*-/i.test(t.name));
+}
+
+// Names of incomplete Lab/Practice topics in the current module — excluded
+// from the walker's own topic list (see getRemainingTopicsInCurrentModule
+// above) but still surfaced by name so the caller can add them to the run's
+// final "needs manual review" summary instead of silently dropping them.
+function getLabPracticeTopicNamesInCurrentModule() {
+  const moduleNumber = getCurrentModuleNumber();
+  if (!moduleNumber) return [];
+  const allTopics = getModuleOutlineTopics(moduleNumber);
+  return allTopics
+    .filter((t) => !t.isCompleted && /^(lab|practice)\s*-/i.test(t.name))
+    .map((t) => t.name);
 }
 
 function iframeShowsTopic(topicNumber) {
-  const iframe = document.querySelector('iframe');
-  if (!iframe || !iframe.contentDocument || !iframe.contentDocument.title) return false;
+  const iframe = getContentIframe();
+  if (!iframe || !iframe.contentDocument.title) return false;
   const parts = iframe.contentDocument.title.split('|');
   const topicTitle = parts.length >= 2 ? parts[1].trim() : '';
   return topicTitle.startsWith(topicNumber) && !/\d/.test(topicTitle.charAt(topicNumber.length));
@@ -1058,7 +1089,12 @@ function classifySection(sectionName, sectionElements) {
   }
   const revealButtons = findInShadowDOMMulti('button', sectionElements).filter((b) => {
     const text = (b.textContent || '').trim();
-    return text.length > 0 && !/^(submit|show feedback)$/i.test(text);
+    if (text.length === 0 || /^(submit|show feedback)$/i.test(text)) return false;
+    // Require a positive disclosure signal (expand/collapse ARIA state)
+    // instead of treating any non-Submit button as a reveal widget — a PDF
+    // download link, external-resource button, or transcript toggle should
+    // NOT get escalated to a real trusted click.
+    return b.hasAttribute('aria-expanded') || b.hasAttribute('aria-controls');
   });
   if (revealButtons.length > 0) {
     return 'clickToReveal';
@@ -1076,9 +1112,12 @@ async function handleReadingSection(sectionElements) {
 }
 
 async function handleClickToRevealSection(sectionElements) {
+  // Keep this filter identical to classifySection's — both must agree on
+  // what counts as a disclosure widget.
   const revealButtons = findInShadowDOMMulti('button', sectionElements).filter((b) => {
     const text = (b.textContent || '').trim();
-    return text.length > 0 && !/^(submit|show feedback)$/i.test(text);
+    if (text.length === 0 || /^(submit|show feedback)$/i.test(text)) return false;
+    return b.hasAttribute('aria-expanded') || b.hasAttribute('aria-controls');
   });
   for (const btn of revealButtons) {
     await robustClick(btn, () => btn.getAttribute('aria-expanded') === 'true' || btn.classList.contains('is-open'));
@@ -1188,11 +1227,20 @@ function stopModuleWalk() {
 
 async function walkTopicSections() {
   const skipped = [];
-  const iframe = document.querySelector('iframe');
-  if (!iframe || !iframe.contentDocument) {
+  const iframe = getContentIframe();
+  if (!iframe) {
     throw new Error("Couldn't find the course content iframe.");
   }
   const contentDoc = iframe.contentDocument;
+
+  // The iframe may still be loading right after openTopic(), or a topic may
+  // render no headings at all — give it a grace period before concluding
+  // there's nothing to walk (which would otherwise silently mark the topic
+  // fully processed).
+  const headingsReady = await waitFor(() => findInShadowDOM('.js-heading', contentDoc).length > 0, 5000);
+  if (!headingsReady) {
+    return { skipped, reachedQuiz: false, stopped: false, notLoaded: true };
+  }
 
   let guardCount = 0;
   while (guardCount < 200) {
@@ -1257,8 +1305,16 @@ async function startModuleWalk() {
 
   try {
     const topics = getRemainingTopicsInCurrentModule();
+    // Lab/Practice topics are never opened, but they must still show up by
+    // name in the final "needs manual review" summary.
+    allSkipped.push(...getLabPracticeTopicNamesInCurrentModule());
+
     if (topics.length === 0) {
-      removeOverlayAfterDelay('Nothing left to complete in this module.');
+      const summary =
+        allSkipped.length > 0
+          ? `Nothing left to auto-complete — ${allSkipped.length} need manual review (${allSkipped.join(', ')})`
+          : 'Nothing left to complete in this module.';
+      removeOverlayAfterDelay(summary);
       return;
     }
 
