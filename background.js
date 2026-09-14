@@ -17,6 +17,10 @@ CRITICAL RULES - YOU MUST FOLLOW THESE EXACTLY:
 Your response must contain ONLY the requested letter(s) and nothing else.
 End.
 `
+
+const MATCHING_SYSTEM_PROMPT =
+  "You are answering a matching question. Follow the exact output format requested in the user's prompt — one 'Row N: <option text>' line per row, nothing else.";
+
 const temperature = 0;
 const top_p = 1.0;
 const max_tokens = 2000; // Increased for Gemini compatibility
@@ -560,7 +564,7 @@ async function getMatchingAnswerFromOpenAI(rows, apiKey) {
   const requestBody = {
     model: 'gpt-4o-mini',
     messages: [
-      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'system', content: MATCHING_SYSTEM_PROMPT },
       { role: 'user', content: prompt }
     ],
     temperature: temperature,
