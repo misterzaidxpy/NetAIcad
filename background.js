@@ -28,11 +28,15 @@ const WEB_AI_SITES = {
     url: 'https://chatgpt.com/',
     windowKey: 'chatgpt',
     siteName: 'ChatGPT',
+    left: 20,
+    top: 20,
   },
   'gemini-web': {
     url: 'https://gemini.google.com/app',
     windowKey: 'gemini',
     siteName: 'Gemini',
+    left: 520,
+    top: 20,
   },
 };
 
@@ -89,12 +93,12 @@ async function ensureWebAiTab(modelType) {
     focused: false,
     width: 480,
     height: 720,
-    left: 20,
-    top: 20,
+    left: config.left,
+    top: config.top,
   });
 
   const tabId = win.tabs[0].id;
-  webAiWindows[config.windowKey] = { windowId: win.id, tabId };
+  webAiWindows[config.windowKey] = { tabId };
 
   await waitForTabLoad(tabId);
   return tabId;
@@ -217,12 +221,17 @@ async function askWebAi(modelType, prompt) {
   const tabId = await ensureWebAiTab(modelType);
   const func = modelType === 'chatgpt-web' ? chatgptWebAutomationInPage : geminiWebAutomationInPage;
 
-  const results = await chrome.scripting.executeScript({
-    target: { tabId },
-    world: 'MAIN',
-    func,
-    args: [prompt],
-  });
+  let results;
+  try {
+    results = await chrome.scripting.executeScript({
+      target: { tabId },
+      world: 'MAIN',
+      func,
+      args: [prompt],
+    });
+  } catch (e) {
+    throw new Error(`Lost connection to the ${config.siteName} tab (it may have been closed or navigated away). Please try again.`);
+  }
 
   const result = results && results[0] ? results[0].result : null;
 
