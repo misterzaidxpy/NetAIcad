@@ -74,14 +74,6 @@ async function handleGetAnswer(question, options, modelType, isMultipleAnswer = 
 async function getAnswerFromGemini(question, options, apiKey, isMultipleAnswer = false, requiredAnswers = 1) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
 
-  // Format options with letters (dynamically handle any number of options)
-  const formattedOptions = options.map((opt, idx) =>
-    `${String.fromCharCode(65 + idx)}. ${opt}`
-  ).join('\n');
-
-  // Get the available option letters dynamically
-  const availableLetters = options.map((_, idx) => String.fromCharCode(65 + idx)).join(', ');
-
   const prompt = buildPrompt(question, options, isMultipleAnswer, requiredAnswers);
 
   const requestBody = {
@@ -189,14 +181,6 @@ async function getAnswerFromGemini(question, options, apiKey, isMultipleAnswer =
 
 async function getAnswerFromOpenAI(question, options, apiKey, isMultipleAnswer = false, requiredAnswers = 1) {
   const url = 'https://api.openai.com/v1/chat/completions';
-
-  // Format options with letters (dynamically handle any number of options)
-  const formattedOptions = options.map((opt, idx) =>
-    `${String.fromCharCode(65 + idx)}. ${opt}`
-  ).join('\n');
-
-  // Get the available option letters dynamically
-  const availableLetters = options.map((_, idx) => String.fromCharCode(65 + idx)).join(', ');
 
   const prompt = buildPrompt(question, options, isMultipleAnswer, requiredAnswers);
 
