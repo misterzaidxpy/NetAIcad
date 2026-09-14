@@ -80,6 +80,44 @@
   background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
 }
 
+/* Module Walker Progress Overlay */
+.ai-walker-overlay {
+  position: fixed;
+  left: 20px;
+  bottom: 20px;
+  z-index: 10001;
+  background: #1f2937;
+  color: white;
+  padding: 12px 16px;
+  border-radius: 8px;
+  font-size: 13px !important;
+  font-family: Arial, Helvetica, sans-serif !important;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  max-width: 360px;
+}
+
+.ai-walker-overlay-status {
+  flex: 1;
+}
+
+.ai-walker-overlay-stop {
+  background: #ef4444;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  cursor: pointer;
+}
+
+.ai-walker-overlay-stop:hover {
+  background: #dc2626;
+}
+
 .ai-helper-button:active {
   transform: translateY(0);
 }
@@ -172,5 +210,11 @@
 
   .ai-helper-button-walker {
     top: 260px;
+  }
+
+  .ai-walker-overlay {
+    left: 10px;
+    bottom: 10px;
+    max-width: calc(100% - 20px);
   }
 }

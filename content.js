@@ -750,7 +750,217 @@ if (document.readyState === 'loading') {
   initialize();
 }
 
-// Temporary stub — replaced with the real implementation in the next task.
-const moduleWalkState = { running: false };
-function startModuleWalk() { console.log('startModuleWalk stub called'); }
-function stopModuleWalk() { console.log('stopModuleWalk stub called'); }
+// --- Module Walker: outline parsing (main frame only) ---
+
+// The iframe's document.title reliably contains the current topic's number
+// as "... | 5.1. Exploiting Network-Based Vulnerabilities" even when the
+// module-number placeholder earlier in the title is unresolved.
+function getCurrentModuleNumber() {
+  const iframe = document.querySelector('iframe');
+  if (!iframe || !iframe.contentDocument || !iframe.contentDocument.title) return null;
+  const parts = iframe.contentDocument.title.split('|');
+  if (parts.length < 2) return null;
+  const match = parts[1].trim().match(/^(\d+)\./);
+  return match ? match[1] : null;
+}
+
+// Outline sidebar buttons use CSS-Modules-hashed classes that aren't stable
+// across deployments (see Global Constraints) — this reads plain button text
+// instead. Module/topic buttons are flat siblings in outline order: a
+// "Module N: ..." button, followed by that module's topic buttons, followed
+// by the next "Module N+1: ..." button. Confirmed live: each topic button's
+// status ("start"/"in progress"/"completed") is NOT part of its textContent —
+// it only shows up in the accessible name via a child <img alt="...">, e.g.
+// <div class="subModuleStatus--..."><img alt="start" src="..."></div>. Read
+// that alt attribute directly rather than parsing it out of textContent.
+function getModuleOutlineTopics(moduleNumber) {
+  const allButtons = Array.from(document.querySelectorAll('button'));
+  const moduleButtonIndex = allButtons.findIndex((b) =>
+    new RegExp(`^Module ${moduleNumber}:`).test((b.textContent || '').trim())
+  );
+  if (moduleButtonIndex === -1) {
+    throw new Error(`Couldn't find "Module ${moduleNumber}" in the course outline.`);
+  }
+
+  const topics = [];
+  for (let i = moduleButtonIndex + 1; i < allButtons.length; i++) {
+    const text = (allButtons[i].textContent || '').trim();
+    if (/^Module \d+:/.test(text) || /Final Exam|Capstone Activity|End of Course Survey/i.test(text)) {
+      break;
+    }
+    const topicMatch = text.match(/^(\d+\.\d+)\.\s*(.+?)\s*(?:\d+\s*\/\s*\d+)?$/i);
+    if (topicMatch) {
+      const statusImg = allButtons[i].querySelector('img[alt]');
+      const status = statusImg ? statusImg.alt.trim().toLowerCase() : '';
+      topics.push({
+        button: allButtons[i],
+        number: topicMatch[1],
+        name: topicMatch[2].trim(),
+        isCompleted: status === 'completed',
+      });
+    }
+  }
+  return topics;
+}
+
+function getRemainingTopicsInCurrentModule() {
+  const moduleNumber = getCurrentModuleNumber();
+  if (!moduleNumber) {
+    throw new Error("Couldn't find the module outline (couldn't determine the current module number).");
+  }
+  const allTopics = getModuleOutlineTopics(moduleNumber);
+  if (allTopics.length === 0) {
+    throw new Error(`Couldn't find the module outline (no topics found under Module ${moduleNumber}).`);
+  }
+  return allTopics.filter((t) => !t.isCompleted);
+}
+
+function iframeShowsTopic(topicNumber) {
+  const iframe = document.querySelector('iframe');
+  if (!iframe || !iframe.contentDocument || !iframe.contentDocument.title) return false;
+  const parts = iframe.contentDocument.title.split('|');
+  return parts.length >= 2 && parts[1].trim().startsWith(topicNumber);
+}
+
+async function openTopic(topic) {
+  await robustClick(topic.button, () => iframeShowsTopic(topic.number));
+  await new Promise((r) => setTimeout(r, 1500));
+}
+
+// --- Module Walker: progress overlay ---
+
+function createOverlay(targetDocument) {
+  let overlay = targetDocument.getElementById('netacad-ai-walker-overlay');
+  if (overlay) return overlay;
+
+  overlay = targetDocument.createElement('div');
+  overlay.id = 'netacad-ai-walker-overlay';
+  overlay.className = 'ai-walker-overlay';
+  overlay.innerHTML =
+    '<span class="ai-walker-overlay-status">Auto-Complete Module — starting…</span>' +
+    '<button class="ai-walker-overlay-stop">Stop</button>';
+  overlay.querySelector('.ai-walker-overlay-stop').addEventListener('click', stopModuleWalk);
+  targetDocument.body.appendChild(overlay);
+  return overlay;
+}
+
+function updateOverlay(text) {
+  const status = document.querySelector('#netacad-ai-walker-overlay .ai-walker-overlay-status');
+  if (status) status.textContent = text;
+}
+
+function removeOverlayAfterDelay(finalText, delayMs = 4000) {
+  updateOverlay(finalText);
+  console.log('Module walker finished:', finalText);
+  setTimeout(() => {
+    const overlay = document.getElementById('netacad-ai-walker-overlay');
+    if (overlay) overlay.remove();
+  }, delayMs);
+}
+
+// --- Module Walker: section classification + handlers ---
+
+function findInShadowDOMMulti(selector, elements) {
+  return elements.reduce((acc, el) => acc.concat(findInShadowDOM(selector, el)), []);
+}
+
+// A "section" is a .js-heading element plus every sibling after it up to
+// (not including) the next .js-heading sibling.
+function getSectionContainerForHeading(heading) {
+  const parent = heading.parentElement;
+  const siblings = Array.from(parent.children);
+  const startIndex = siblings.indexOf(heading);
+  let endIndex = siblings.length;
+  for (let i = startIndex + 1; i < siblings.length; i++) {
+    if (siblings[i].classList && siblings[i].classList.contains('js-heading')) {
+      endIndex = i;
+      break;
+    }
+  }
+  return siblings.slice(startIndex, endIndex);
+}
+
+function isGradedQuizSection(sectionElements) {
+  const hasMcq = findInShadowDOMMulti('mcq-view', sectionElements).length > 0;
+  const hasQuizNav = findInShadowDOMMulti('button', sectionElements).some((b) =>
+    /skip question|skip all question/i.test((b.textContent || '').trim())
+  );
+  return hasMcq && hasQuizNav;
+}
+
+function classifySection(sectionName, sectionElements) {
+  if (/^(lab|practice)\s*-/i.test(sectionName)) {
+    return 'unknown'; // Labs/Practices open external tools — out of scope.
+  }
+  if (findInShadowDOMMulti('video', sectionElements).length > 0) {
+    return 'video';
+  }
+  if (findInShadowDOMMulti('mcq-view', sectionElements).length > 0) {
+    return 'selfCheck';
+  }
+  if (findInShadowDOMMulti('.matching__widget', sectionElements).length > 0) {
+    return 'matching';
+  }
+  const revealButtons = findInShadowDOMMulti('button', sectionElements).filter((b) => {
+    const text = (b.textContent || '').trim();
+    return text.length > 0 && !/^(submit|show feedback)$/i.test(text);
+  });
+  if (revealButtons.length > 0) {
+    return 'clickToReveal';
+  }
+  return 'reading';
+}
+
+async function handleReadingSection(sectionElements) {
+  const target = sectionElements[sectionElements.length - 1] || sectionElements[0];
+  if (target && target.scrollIntoView) {
+    target.scrollIntoView({ block: 'end', behavior: 'auto' });
+  }
+  await new Promise((r) => setTimeout(r, 1500));
+  return true;
+}
+
+async function handleClickToRevealSection(sectionElements) {
+  const revealButtons = findInShadowDOMMulti('button', sectionElements).filter((b) => {
+    const text = (b.textContent || '').trim();
+    return text.length > 0 && !/^(submit|show feedback)$/i.test(text);
+  });
+  for (const btn of revealButtons) {
+    await robustClick(btn, () => btn.getAttribute('aria-expanded') === 'true' || btn.classList.contains('is-open'));
+    await new Promise((r) => setTimeout(r, 300));
+  }
+  return true;
+}
+
+async function handleVideoSection(sectionElements) {
+  const videos = findInShadowDOMMulti('video', sectionElements);
+  if (videos.length === 0) return false;
+  const video = videos[0];
+  video.muted = true;
+  video.playbackRate = 4;
+
+  await new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      video.removeEventListener('ended', finish);
+      resolve();
+    };
+    video.addEventListener('ended', finish, { once: true });
+    const timeoutMs = Math.max(5000, ((video.duration || 60) / video.playbackRate) * 1000 * 2);
+    setTimeout(finish, timeoutMs);
+    video.play().catch(finish);
+  });
+
+  return true;
+}
+
+// Temporary stubs — replaced in later tasks.
+const moduleWalkState = { running: false, stopRequested: false };
+function stopModuleWalk() { moduleWalkState.stopRequested = true; }
+async function handleSelfCheckSection() { return false; }
+async function handleMatchingSection() { return false; }
+async function startModuleWalk() {
+  console.log('startModuleWalk stub: topics =', getRemainingTopicsInCurrentModule());
+}
