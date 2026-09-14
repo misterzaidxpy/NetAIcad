@@ -966,8 +966,71 @@ async function handleVideoSection(sectionElements) {
 // Temporary stubs — replaced in later tasks.
 const moduleWalkState = { running: false, stopRequested: false };
 function stopModuleWalk() { moduleWalkState.stopRequested = true; }
-async function handleSelfCheckSection() { return false; }
-async function handleMatchingSection() { return false; }
+// Formative/embedded self-checks (radio/checkbox groups). Per the design
+// spec's explicit decision, any attempted answer is enough — these are
+// ungraded and only need to be attempted to complete the section.
+async function handleSelfCheckSection(sectionElements) {
+  const items = findInShadowDOMMulti('.mcq__item', sectionElements);
+  if (items.length === 0) return false;
+
+  const handledGroups = new Set();
+  for (const item of items) {
+    const input = item.querySelector('input');
+    const groupKey = input && input.name ? input.name : item.parentElement;
+    if (handledGroups.has(groupKey)) continue;
+    if (input && input.checked) {
+      handledGroups.add(groupKey);
+      continue;
+    }
+    await robustClick(item, () => !input || input.checked);
+    handledGroups.add(groupKey);
+  }
+
+  const submitButtons = findInShadowDOMMulti('button', sectionElements).filter((b) =>
+    /^submit/i.test((b.textContent || '').trim())
+  );
+  for (const btn of submitButtons) {
+    if (!btn.disabled) {
+      await robustClick(btn, () => btn.disabled);
+    }
+  }
+
+  return true;
+}
+
+// Matching-dropdown rows (also used for Likert-scale "Lab Survey" widgets —
+// both share the same .matching__widget/matching-dropdown-view markup). Per
+// the design spec, embedded matching self-checks accept any answer.
+async function handleMatchingSection(sectionElements) {
+  const rows = findInShadowDOMMulti('matching-dropdown-view', sectionElements);
+  if (rows.length === 0) return false;
+
+  for (const row of rows) {
+    const dropdownBtn = findInShadowDOM('.dropdown__btn.js-dropdown-btn', row)[0];
+    if (!dropdownBtn) continue;
+
+    await robustClick(dropdownBtn, () => dropdownBtn.getAttribute('aria-expanded') === 'true');
+    await new Promise((r) => setTimeout(r, 300));
+
+    const options = findInShadowDOM('.dropdown__item.js-dropdown-list-item', row.ownerDocument).filter(
+      (opt) => opt.offsetParent !== null
+    );
+    if (options.length === 0) continue;
+
+    await robustClick(options[0], () => /not selected/i.test(options[0].textContent || '') === false);
+  }
+
+  const submitButtons = findInShadowDOMMulti('button', sectionElements).filter((b) =>
+    /^submit/i.test((b.textContent || '').trim())
+  );
+  for (const btn of submitButtons) {
+    if (!btn.disabled) {
+      await robustClick(btn, () => btn.disabled);
+    }
+  }
+
+  return true;
+}
 async function startModuleWalk() {
   console.log('startModuleWalk stub: topics =', getRemainingTopicsInCurrentModule());
 }
