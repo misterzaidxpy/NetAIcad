@@ -1017,7 +1017,7 @@ async function handleMatchingSection(sectionElements) {
     );
     if (options.length === 0) continue;
 
-    await robustClick(options[0], () => /not selected/i.test(options[0].textContent || '') === false);
+    await robustClick(options[0], () => !/not selected/i.test(dropdownBtn.textContent || ''));
   }
 
   const submitButtons = findInShadowDOMMulti('button', sectionElements).filter((b) =>
