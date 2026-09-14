@@ -1009,12 +1009,19 @@ function getSectionContainerForHeading(heading) {
   return siblings.slice(startIndex, endIndex);
 }
 
-function isGradedQuizSection(sectionElements) {
+function isGradedQuizSection(sectionName, sectionElements) {
   const hasMcq = findInShadowDOMMulti('mcq-view', sectionElements).length > 0;
   const hasQuizNav = findInShadowDOMMulti('button', sectionElements).some((b) =>
     /skip question|skip all question/i.test((b.textContent || '').trim())
   );
-  return hasMcq && hasQuizNav;
+  // Err heavily toward detecting a quiz: requiring the "Skip question" nav
+  // control (which may render outside this section's narrow sibling range,
+  // or not at all in some layouts) is not sufficient on its own — also treat
+  // any section whose heading name looks graded (quiz/exam/checkpoint/
+  // assessment) plus an mcq-view as graded. Never touching a graded quiz is
+  // the single hard non-goal of the module walker.
+  const nameLooksGraded = /\b(quiz|exam|checkpoint|assessment)\b/i.test(sectionName || '');
+  return hasMcq && (hasQuizNav || nameLooksGraded);
 }
 
 function classifySection(sectionName, sectionElements) {
@@ -1186,7 +1193,7 @@ async function walkTopicSections() {
     const sectionName = nextIncomplete.textContent.trim().replace(/^Incomplete\s*/, '');
     const section = getSectionContainerForHeading(nextIncomplete);
 
-    if (isGradedQuizSection(section)) {
+    if (isGradedQuizSection(sectionName, section)) {
       return { skipped, reachedQuiz: true, quizName: sectionName, stopped: false };
     }
 
