@@ -211,9 +211,9 @@ async function geminiWebAutomationInPage(prompt) {
   return lastText ? { success: true, text: lastText } : { success: false, error: 'timeout-no-response' };
 }
 
-function buildWebAiPrompt(question, options, isMultipleAnswer, requiredAnswers) {
+function wrapWebAiPrompt(prompt) {
   const prefix = "Ignore all previous questions and answers in this conversation. Treat the following as a brand-new, unrelated question.\n\n";
-  return prefix + buildPrompt(question, options, isMultipleAnswer, requiredAnswers);
+  return prefix + prompt;
 }
 
 async function askWebAi(modelType, prompt) {
@@ -275,6 +275,12 @@ async function handleRobustClickCdp(tabId, x, y) {
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'getAnswer') {
+    if (request.isMatching) {
+      handleGetMatchingAnswer(request.rows, request.modelType)
+        .then(result => sendResponse(result))
+        .catch(error => sendResponse({ success: false, error: error.message }));
+      return true;
+    }
     handleGetAnswer(
       request.question,
       request.options,
@@ -317,7 +323,7 @@ async function handleGetAnswer(question, options, modelType, isMultipleAnswer = 
       }
       answerIndex = await getAnswerFromGemini(question, options, apiKey, isMultipleAnswer, requiredAnswers);
     } else if (modelType === 'chatgpt-web' || modelType === 'gemini-web') {
-      const prompt = buildWebAiPrompt(question, options, isMultipleAnswer, requiredAnswers);
+      const prompt = wrapWebAiPrompt(buildPrompt(question, options, isMultipleAnswer, requiredAnswers));
       const rawText = await askWebAi(modelType, prompt);
       answerIndex = parseAnswerLetters(rawText, options, isMultipleAnswer, requiredAnswers);
     } else {
@@ -327,6 +333,37 @@ async function handleGetAnswer(question, options, modelType, isMultipleAnswer = 
     return { success: true, answerIndex: answerIndex };
   } catch (error) {
     console.error('Error getting answer:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+async function handleGetMatchingAnswer(rows, modelType) {
+  try {
+    const settings = await chrome.storage.sync.get(['geminiApiKey', 'openAiApiKey']);
+    let rowAnswers;
+
+    if (modelType === 'gpt') {
+      const apiKey = settings.openAiApiKey;
+      if (!apiKey) {
+        throw new Error('OpenAI API key not configured. Please set it in the extension popup.');
+      }
+      rowAnswers = await getMatchingAnswerFromOpenAI(rows, apiKey);
+    } else if (modelType === 'gemini') {
+      const apiKey = settings.geminiApiKey;
+      if (!apiKey) {
+        throw new Error('Gemini API key not configured. Please set it in the extension popup.');
+      }
+      rowAnswers = await getMatchingAnswerFromGemini(rows, apiKey);
+    } else if (modelType === 'chatgpt-web' || modelType === 'gemini-web') {
+      const rawText = await askWebAi(modelType, wrapWebAiPrompt(buildMatchingPrompt(rows)));
+      rowAnswers = parseMatchingAnswer(rawText, rows);
+    } else {
+      throw new Error('Unknown model type: ' + modelType);
+    }
+
+    return { success: true, rowAnswers: rowAnswers };
+  } catch (error) {
+    console.error('Error getting matching answer:', error);
     return { success: false, error: error.message };
   }
 }
@@ -515,5 +552,74 @@ async function getAnswerFromOpenAI(question, options, apiKey, isMultipleAnswer =
   console.log('OpenAI raw answer:', answerText);
 
   return parseAnswerLetters(answerText, options, isMultipleAnswer, requiredAnswers);
+}
+
+async function getMatchingAnswerFromOpenAI(rows, apiKey) {
+  const prompt = buildMatchingPrompt(rows);
+  const url = 'https://api.openai.com/v1/chat/completions';
+  const requestBody = {
+    model: 'gpt-4o-mini',
+    messages: [
+      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'user', content: prompt }
+    ],
+    temperature: temperature,
+    top_p: top_p,
+    max_tokens: max_tokens,
+    presence_penalty: presence_penalty,
+    frequency_penalty: frequency_penalty,
+  };
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`
+    },
+    body: JSON.stringify(requestBody)
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(`OpenAI API error: ${data.error?.message || response.statusText}`);
+  }
+
+  const answerText = data.choices?.[0]?.message?.content?.trim();
+  if (!answerText) {
+    throw new Error('No answer received from OpenAI for the matching question. Full response: ' + JSON.stringify(data));
+  }
+
+  return parseMatchingAnswer(answerText, rows);
+}
+
+async function getMatchingAnswerFromGemini(rows, apiKey) {
+  const prompt = buildMatchingPrompt(rows);
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+  const requestBody = {
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: {
+      temperature: temperature,
+      topP: top_p,
+      maxOutputTokens: max_tokens
+    }
+  };
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(requestBody)
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(`Gemini API error: ${data.error?.message || response.statusText}`);
+  }
+
+  const answerText = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+  if (!answerText) {
+    throw new Error('No answer received from Gemini for the matching question. Full response: ' + JSON.stringify(data));
+  }
+
+  return parseMatchingAnswer(answerText, rows);
 }
 
