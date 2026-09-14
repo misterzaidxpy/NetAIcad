@@ -68,6 +68,18 @@
   background: linear-gradient(135deg, #34d399 0%, #10b981 100%);
 }
 
+/* Module Walker Button (Amber) */
+.ai-helper-button-walker {
+  top: 300px;
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+}
+
+.ai-helper-button-walker:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(245, 158, 11, 0.6);
+  background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+}
+
 .ai-helper-button:active {
   transform: translateY(0);
 }
@@ -156,5 +168,9 @@
 
   .ai-helper-button-webai {
     top: 210px;
+  }
+
+  .ai-helper-button-walker {
+    top: 260px;
   }
 }

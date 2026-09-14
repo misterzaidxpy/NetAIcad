@@ -570,6 +570,50 @@ function createHelperButton(targetDocument = document) {
   console.log('AI helper buttons added to', targetDocument === document ? 'main page' : 'iframe');
 }
 
+// Detects a Netacad course-content page (as opposed to a quiz page) and
+// injects the Auto-Complete Module button. Only runs in the top frame: it
+// reaches into the course-content iframe itself (same-origin) rather than
+// running as its own content-script instance inside that iframe.
+function checkForCourseContent() {
+  if (window.top !== window.self) {
+    return;
+  }
+  if (document.getElementById('netacad-ai-walker-btn')) {
+    return;
+  }
+
+  const iframe = document.querySelector('iframe');
+  if (!iframe || !iframe.contentDocument) {
+    return;
+  }
+
+  const headings = findInShadowDOM('.js-heading', iframe.contentDocument);
+  if (headings.length === 0) {
+    return;
+  }
+
+  console.log(`✅ Course content detected (${headings.length} .js-heading sections), adding walker button`);
+  createModuleWalkerButton(document);
+}
+
+function createModuleWalkerButton(targetDocument) {
+  const button = targetDocument.createElement('button');
+  button.id = 'netacad-ai-walker-btn';
+  button.innerHTML = '📖 Auto-Complete Module';
+  button.className = 'ai-helper-button ai-helper-button-walker';
+
+  button.addEventListener('click', () => {
+    if (moduleWalkState.running) {
+      stopModuleWalk();
+    } else {
+      startModuleWalk();
+    }
+  });
+
+  targetDocument.body.appendChild(button);
+  console.log('Module walker button added to main page');
+}
+
 // Shared button click handler
 async function handleButtonClick(button, modelType, originalText) {
   button.disabled = true;
@@ -654,8 +698,10 @@ function tryCheckForQuiz() {
   console.log(`Attempt ${checkAttempts} to find quiz`);
 
   checkForQuiz();
+  checkForCourseContent();
 
-  if (checkAttempts < maxAttempts && !document.getElementById('netacad-ai-helper-btn-gpt')) {
+  const found = document.getElementById('netacad-ai-helper-btn-gpt') || document.getElementById('netacad-ai-walker-btn');
+  if (checkAttempts < maxAttempts && !found) {
     setTimeout(tryCheckForQuiz, 500);
   }
 }
@@ -670,12 +716,14 @@ function initialize() {
   // Also observe for dynamic content changes (for SPA navigation)
   const observer = new MutationObserver((mutations) => {
     // Only check if buttons don't exist
-    if (!document.getElementById('netacad-ai-helper-btn-gpt')) {
+    const found = document.getElementById('netacad-ai-helper-btn-gpt') || document.getElementById('netacad-ai-walker-btn');
+    if (!found) {
       const appRoot = document.querySelector('app-root');
       if (appRoot) {
         console.log('app-root detected via mutation observer');
         checkForQuiz();
       }
+      checkForCourseContent();
     }
   });
 
@@ -701,3 +749,8 @@ if (document.readyState === 'loading') {
   console.log('Document already complete');
   initialize();
 }
+
+// Temporary stub — replaced with the real implementation in the next task.
+const moduleWalkState = { running: false };
+function startModuleWalk() { console.log('startModuleWalk stub called'); }
+function stopModuleWalk() { console.log('stopModuleWalk stub called'); }
