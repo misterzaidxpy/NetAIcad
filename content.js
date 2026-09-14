@@ -819,11 +819,15 @@ function iframeShowsTopic(topicNumber) {
   const iframe = document.querySelector('iframe');
   if (!iframe || !iframe.contentDocument || !iframe.contentDocument.title) return false;
   const parts = iframe.contentDocument.title.split('|');
-  return parts.length >= 2 && parts[1].trim().startsWith(topicNumber);
+  const topicTitle = parts.length >= 2 ? parts[1].trim() : '';
+  return topicTitle.startsWith(topicNumber) && !/\d/.test(topicTitle.charAt(topicNumber.length));
 }
 
 async function openTopic(topic) {
-  await robustClick(topic.button, () => iframeShowsTopic(topic.number));
+  const navigated = await robustClick(topic.button, () => iframeShowsTopic(topic.number));
+  if (!navigated) {
+    throw new Error(`Couldn't navigate to topic ${topic.number} (${topic.name}).`);
+  }
   await new Promise((r) => setTimeout(r, 1500));
 }
 
@@ -851,7 +855,7 @@ function updateOverlay(text) {
 
 function removeOverlayAfterDelay(finalText, delayMs = 4000) {
   updateOverlay(finalText);
-  console.log('Module walker finished:', finalText);
+  console.log('📖 Module walker finished:', finalText);
   setTimeout(() => {
     const overlay = document.getElementById('netacad-ai-walker-overlay');
     if (overlay) overlay.remove();
@@ -939,21 +943,24 @@ async function handleVideoSection(sectionElements) {
   video.muted = true;
   video.playbackRate = 4;
 
-  await new Promise((resolve) => {
+  const completed = await new Promise((resolve) => {
     let settled = false;
-    const finish = () => {
+    let timeoutId;
+    const finish = (didComplete) => {
       if (settled) return;
       settled = true;
-      video.removeEventListener('ended', finish);
-      resolve();
+      video.removeEventListener('ended', onEnded);
+      clearTimeout(timeoutId);
+      resolve(didComplete);
     };
-    video.addEventListener('ended', finish, { once: true });
+    const onEnded = () => finish(true);
+    video.addEventListener('ended', onEnded, { once: true });
     const timeoutMs = Math.max(5000, ((video.duration || 60) / video.playbackRate) * 1000 * 2);
-    setTimeout(finish, timeoutMs);
-    video.play().catch(finish);
+    timeoutId = setTimeout(() => finish(false), timeoutMs);
+    video.play().catch(() => finish(false));
   });
 
-  return true;
+  return completed;
 }
 
 // Temporary stubs — replaced in later tasks.
