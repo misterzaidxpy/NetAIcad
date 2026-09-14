@@ -1,83 +1,39 @@
 // Popup script for configuration
 document.addEventListener('DOMContentLoaded', async () => {
-  const simpleModelSelect = document.getElementById('simpleModel');
-  const codingModelSelect = document.getElementById('codingModel');
-  const openRouterApiKeyInput = document.getElementById('openRouterApiKey');
-  const apiKeyInput = document.getElementById('apiKey');
+  const openAiApiKeyInput = document.getElementById('openAiApiKey');
+  const geminiApiKeyInput = document.getElementById('geminiApiKey');
   const saveBtn = document.getElementById('saveBtn');
   const statusDiv = document.getElementById('status');
 
   // Load saved settings
   const settings = await chrome.storage.sync.get([
-    'simpleModel',
-    'codingModel',
-    'openRouterApiKey',
-    'apiKey',
-    'aiProvider' // For backward compatibility
+    'openAiApiKey',
+    'geminiApiKey'
   ]);
 
-  if (settings.simpleModel) {
-    simpleModelSelect.value = settings.simpleModel;
-  } else if (settings.aiProvider) {
-    // Migrate old settings
-    simpleModelSelect.value = settings.aiProvider;
+  if (settings.openAiApiKey) {
+    openAiApiKeyInput.value = settings.openAiApiKey;
   }
 
-  if (settings.codingModel) {
-    codingModelSelect.value = settings.codingModel;
-  }
-
-  if (settings.openRouterApiKey) {
-    openRouterApiKeyInput.value = settings.openRouterApiKey;
-  }
-
-  if (settings.apiKey) {
-    apiKeyInput.value = settings.apiKey;
+  if (settings.geminiApiKey) {
+    geminiApiKeyInput.value = settings.geminiApiKey;
   }
 
   // Save settings
   saveBtn.addEventListener('click', async () => {
-    const simpleModel = simpleModelSelect.value;
-    const codingModel = codingModelSelect.value;
-    const openRouterApiKey = openRouterApiKeyInput.value.trim();
-    const apiKey = apiKeyInput.value.trim();
+    const openAiApiKey = openAiApiKeyInput.value.trim();
+    const geminiApiKey = geminiApiKeyInput.value.trim();
 
-    // Validation
-    if (!simpleModel && !codingModel) {
-      showStatus('Please select at least one model', 'error');
-      return;
-    }
-
-    // Check if OpenRouter models are selected but no OpenRouter API key
-    const openRouterModels = [
-      'DeepSeek', 'GPT-5 Pro', 'Claude Sonnet 4.5', 'Qwen3 Coder Plus',
-      'GLM', 'Grok 4 Fast', 'GPT-5 Codex', 'Qwen3 Coder Flash'
-    ];
-
-    const needsOpenRouterKey = openRouterModels.includes(simpleModel) || 
-                                openRouterModels.includes(codingModel);
-
-    if (needsOpenRouterKey && !openRouterApiKey) {
-      showStatus('OpenRouter API key required for selected models', 'error');
-      return;
-    }
-
-    // Check if legacy providers are selected but no legacy API key
-    const needsLegacyKey = simpleModel === 'groq' || simpleModel === 'gemini' ||
-                           codingModel === 'groq' || codingModel === 'gemini';
-
-    if (needsLegacyKey && !apiKey) {
-      showStatus('API key required for Groq/Gemini', 'error');
+    // Validation - at least one API key is required
+    if (!openAiApiKey && !geminiApiKey) {
+      showStatus('Please enter at least one API key', 'error');
       return;
     }
 
     try {
       await chrome.storage.sync.set({
-        simpleModel: simpleModel,
-        codingModel: codingModel,
-        openRouterApiKey: openRouterApiKey,
-        apiKey: apiKey,
-        aiProvider: simpleModel // For backward compatibility
+        openAiApiKey: openAiApiKey,
+        geminiApiKey: geminiApiKey
       });
 
       showStatus('Settings saved successfully!', 'success');

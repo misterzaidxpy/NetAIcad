@@ -4,20 +4,16 @@
 
 ## Features
 
-- 🤖 **Dual AI Model System** for different question types:
-  - **Simple Model**: For general questions, trivia, and non-technical content
-  - **Advanced Model**: For programming, mathematics, and technical questions
-- 🔥 **8 OpenRouter AI Models** including:
-  - Claude Sonnet 4.5, GPT-5 Pro, GPT-5 Codex
-  - Qwen3 Coder Plus, DeepSeek, Grok 4 Fast, GLM 4.6
-- ⚡ **Legacy Provider Support**:
-  - **Groq** (Fast & Free with Llama 3.3)
-  - **Google Gemini** (Free tier available)
+- 🤖 **Dual AI Provider Support**:
+  - **OpenAI GPT-4o Mini** - Fast and accurate for all question types
+  - **Google Gemini 2.5 Flash** - Free tier available, great performance
 - 🎯 Automatic question and option extraction from Netacad quizzes
+- ✅ **Multiple-answer support** - Works with checkbox questions (choose two, choose three, etc.)
 - ✨ Visual highlighting of suggested correct answers
 - 🔐 Secure API key storage
-- 🎨 Clean and intuitive dual-button UI
-- 💡 Smart model selection for optimal accuracy
+- 🎨 Clean and intuitive dual-button UI (GPT and Gemini buttons)
+- ⚡ Fast response times with both models
+- 💡 Choose the best model for your needs
 
 ## Installation
 
@@ -38,65 +34,62 @@
 
 ## Setup
 
-### 1. Get API Keys (FREE options available!)
+### 1. Get API Keys
 
-**Option A: OpenRouter** (⭐ Recommended - Access to 8+ Models)
-- Sign up at [OpenRouter](https://openrouter.ai/)
-- Get your free API key from [OpenRouter Keys](https://openrouter.ai/keys)
-- Access Claude Sonnet 4.5, GPT-5 Pro, and more models
+**Option A: OpenAI** (GPT-4o Mini)
+- Sign up at [OpenAI Platform](https://platform.openai.com/)
+- Get your API key from [OpenAI API Keys](https://platform.openai.com/api-keys)
+- Very affordable pay-as-you-go pricing
 
-**Option B: Legacy Providers** (Still Supported)
-- **Groq** (Fast & Free): [Groq Console](https://console.groq.com/keys)
-- **Google Gemini** (Free tier): [Google AI Studio](https://makersuite.google.com/app/apikey)
+**Option B: Google Gemini** (⭐ FREE - Recommended to start)
+- Sign up at [Google AI Studio](https://makersuite.google.com/app/apikey)
+- Get your free API key
+- Generous free tier with excellent performance
+
+**You can use one or both API keys!**
 
 ### 2. Configure the Extension
 
 1. Click the extension icon in your browser toolbar
-2. **Select models for each use case:**
-   - **Simple Questions Model**: Choose for general/trivia questions
-     - Options: Groq, Gemini, DeepSeek, Qwen3 Coder Flash
-   - **Advanced (Coding/Math) Model**: Choose for technical questions
-     - Options: Claude Sonnet 4.5, GPT-5 Pro, GPT-5 Codex, Qwen3 Coder Plus, Grok 4 Fast, GLM 4.6
-3. **Enter API key(s):**
-   - OpenRouter API Key (if using OpenRouter models)
-   - Legacy Provider API Key (if using Groq/Gemini)
-4. Click "Save Settings"
+2. Enter your API key(s):
+   - **OpenAI API Key** (for GPT-4o Mini)
+   - **Google Gemini API Key** (for Gemini 2.5 Flash)
+3. Click "Save Settings"
 
-### Why Use OpenRouter? 🔥
-
-**OpenRouter** gives you access to multiple state-of-the-art models:
-- ✅ Access to Claude, GPT-5, Qwen3, and more
-- 🧠 Choose specialized coding models for technical questions
-- 💡 Use simpler models for basic questions to save costs
-- 🎯 Higher accuracy for programming and math problems
-- 🆓 Free tier available with generous limits
+**Note:** You need at least one API key to use the extension. Both providers work great!
 
 ## Usage
 
 1. Navigate to a Netacad quiz page
 2. You'll see **two buttons** on the page once the quiz iframe loads:
-   - **🤖 Get AI Answer** (Green) - For general questions
-   - **🔥 Advanced AI (Code/Math)** (Red) - For technical questions
-3. Choose the appropriate button based on the question type:
-   - Use the **green button** for general knowledge, trivia, theory questions
-   - Use the **red button** for programming, mathematics, statistics, or complex technical questions
-4. The extension will highlight the AI-suggested correct answer
+   - **🤖 Get Answer from GPT** (Blue) - Uses OpenAI GPT-4o Mini
+   - **✨ Get Answer from Gemini** (Purple) - Uses Google Gemini 2.5 Flash
+3. Click the button for the AI provider you want to use
+4. The extension will highlight the AI-suggested correct answer(s)
+   - For single-answer questions (radio buttons): One option is highlighted
+   - For multiple-answer questions (checkboxes): Multiple options are highlighted
 5. Review the suggestion and make your selection
 
-### Which Button to Use? 🤔
+### Multiple-Answer Questions
 
-- **Green Button (Simple Model)**: 
-  - General networking concepts
-  - Theory and definitions
-  - Basic troubleshooting scenarios
-  - Non-technical questions
+The extension automatically detects when a question requires multiple answers (checkboxes instead of radio buttons) and will:
+- Analyze the question text to determine how many answers are needed (e.g., "choose two", "select three")
+- Request the correct number of answers from the AI
+- Highlight all suggested correct answers in green
 
-- **Red Button (Advanced Model)**:
-  - Code analysis and debugging
-  - Mathematical calculations
-  - Complex algorithms
-  - Statistical problems
-  - Technical programming questions
+### Which Provider to Use? 🤔
+
+Both models work great for all types of questions! Here are some considerations:
+
+- **GPT-4o Mini**:
+  - Very accurate and reliable
+  - Pay-as-you-go pricing (affordable)
+  - Great for all question types
+
+- **Gemini 2.5 Flash**:
+  - Free tier available (generous limits)
+  - Excellent performance
+  - Perfect for starting out or high-volume use
 
 ## Screenshots
 
@@ -110,11 +103,11 @@ Below are some screenshots demonstrating the extension in action:
 
 ---
 
-### 2. "Get AI Answer" Button on Netacad Quiz
+### 2. AI Provider Buttons on Netacad Quiz
 
-![Get AI Answer Button](screenshots/quiz-button.png)
+![AI Provider Buttons](screenshots/quiz-button.png)
 
-*The "🤖 Get AI Answer" button appears on Netacad quiz pages.*
+*Two buttons appear on Netacad quiz pages: "🤖 Get Answer from GPT" and "✨ Get Answer from Gemini".*
 
 ---
 
@@ -155,10 +148,11 @@ Below are some screenshots demonstrating the extension in action:
 1. **Content Script** (`content.js`) runs on Netacad pages and detects quiz elements using Shadow DOM
 2. Netacad uses Shadow DOM to encapsulate quiz content, so the script accesses the `mcq-view` element's shadow root
 3. The script extracts question text and options from inside the shadow DOM
-4. User clicks either the **green button** (simple model) or **red button** (advanced model)
-5. **Background Script** (`background.js`) sends the question to the selected AI model via OpenRouter or legacy provider
-6. The AI responds with only the correct option letter (A, B, C, or D)
-7. The extension highlights the corresponding option with inline styles (since CSS doesn't penetrate Shadow DOM)
+4. The script detects if the question requires multiple answers (checkbox vs radio button)
+5. User clicks either the **blue button** (GPT) or **purple button** (Gemini)
+6. **Background Script** (`background.js`) sends the question to the selected AI provider (OpenAI or Google) with info about whether multiple answers are needed
+7. The AI responds with the correct option letter(s) (e.g., "A" for single answer, or "A,B" for multiple answers)
+8. The extension highlights the corresponding option(s) with inline styles (since CSS doesn't penetrate Shadow DOM)
 
 ## Files
 
@@ -172,41 +166,40 @@ Below are some screenshots demonstrating the extension in action:
 ## Privacy & Security
 
 - API keys are stored locally in Chrome's sync storage
-- No data is sent to any server except the AI provider you choose
+- No data is sent to any server except the AI provider you choose (OpenAI or Google)
 - The extension only runs on `netacad.com` domains
+- Your quiz data is only sent to the AI provider when you click a button
 
 ## Limitations
 
 - AI suggestions may not always be correct - always verify answers
-- Requires a valid API key (OpenRouter, Groq, or Gemini)
-- **Free options available** (OpenRouter, Groq, and Gemini offer free tiers)
-- API usage may incur costs for premium models
-- Only works on multiple-choice questions
-- For best results, use the appropriate button (simple vs advanced) based on question type
+- Requires at least one API key (OpenAI or Gemini)
+- **Affordable/FREE options**:
+  - **Gemini**: Free tier with generous limits (⭐ Recommended to start)
+  - **OpenAI**: Very affordable pay-as-you-go pricing
+- Works with multiple-choice questions (single and multiple answers)
+- Both models work well for all question types
+- The extension tries to auto-detect the number of required answers, but may default to 2 if unclear
 
 ## Troubleshooting
 
 **Extension buttons not appearing**
 - Make sure you're on a Netacad quiz page with multiple choice questions
 - Refresh the page after installing the extension
-- Check that both green and red buttons are visible
+- Check that both blue (GPT) and purple (Gemini) buttons are visible
 
 **API errors**
-- Verify your API key is correct (OpenRouter or Legacy provider)
+- Verify your API key is correct in the extension popup
+- For GPT button: Make sure you entered a valid OpenAI API key
+- For Gemini button: Make sure you entered a valid Google Gemini API key
 - Check that you have API credits/quota remaining
-- Ensure you selected models that match your API key
-- For OpenRouter models, make sure you entered the OpenRouter API key
+- Gemini has a generous free tier - start with that if you're unsure
 
 **No answer highlighted**
 - Check the browser console for errors (F12)
-- Verify the question format is supported
-- Try switching between simple and advanced models
-- Ensure the correct model is configured for the button you clicked
-
-**Wrong model being used**
-- Check which button you clicked (green = simple, red = advanced)
-- Verify model selections in the extension popup
-- Make sure the appropriate API key is configured
+- Verify the question format is supported (must be multiple choice)
+- Try the other provider button if one doesn't work
+- Make sure you saved your API key(s) in the settings
 
 ## Disclaimer
 

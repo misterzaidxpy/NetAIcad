@@ -249,11 +249,68 @@ async function extractQuestionData() {
       };
     });
 
+    // Detect if this is a multiple-answer question (checkbox)
+    // Check for checkbox input type
+    const firstOption = mcqView.querySelector('.mcq__item');
+    let isMultipleAnswer = false;
+    let requiredAnswers = 1;
+
+    if (firstOption) {
+      // Look for input type (checkbox vs radio)
+      const inputElement = firstOption.querySelector('input[type="checkbox"]');
+      if (inputElement) {
+        isMultipleAnswer = true;
+        console.log('✅ Detected CHECKBOX question (multiple answers possible)');
+      } else {
+        console.log('✅ Detected RADIO question (single answer)');
+      }
+    }
+
+    // Try to detect number of required answers from question text
+    if (isMultipleAnswer) {
+      const questionLower = questionText.toLowerCase();
+
+      // Match patterns like "choose two", "select three", "choose 2", etc.
+      const patterns = [
+        /choose\s+(two|three|four|five|2|3|4|5)/i,
+        /select\s+(two|three|four|five|2|3|4|5)/i,
+        /pick\s+(two|three|four|five|2|3|4|5)/i,
+        /identify\s+(two|three|four|five|2|3|4|5)/i
+      ];
+
+      const numberMap = {
+        'two': 2, '2': 2,
+        'three': 3, '3': 3,
+        'four': 4, '4': 4,
+        'five': 5, '5': 5
+      };
+
+      for (const pattern of patterns) {
+        const match = questionLower.match(pattern);
+        if (match && match[1]) {
+          const num = numberMap[match[1].toLowerCase()];
+          if (num) {
+            requiredAnswers = num;
+            console.log(`✅ Detected ${requiredAnswers} required answers from question text`);
+            break;
+          }
+        }
+      }
+
+      // If still couldn't detect, default to 2 for checkbox questions
+      if (requiredAnswers === 1) {
+        requiredAnswers = 2;
+        console.log('⚠️ Could not detect number of answers, defaulting to 2');
+      }
+    }
+
     console.log('=== Extraction Complete ===\n');
 
     return {
       question: questionText,
-      options: options
+      options: options,
+      isMultipleAnswer: isMultipleAnswer,
+      requiredAnswers: requiredAnswers
     };
 
   } catch (error) {
@@ -262,10 +319,14 @@ async function extractQuestionData() {
   }
 }
 
-// Function to highlight the correct answer
-function highlightCorrectAnswer(correctOptionIndex) {
+// Function to highlight the correct answer(s)
+// correctOptionIndices can be a single index or an array of indices
+function highlightCorrectAnswer(correctOptionIndices) {
   console.log('=== Starting Highlight ===');
-  console.log('Highlighting option index:', correctOptionIndex);
+
+  // Normalize to array
+  const indices = Array.isArray(correctOptionIndices) ? correctOptionIndices : [correctOptionIndices];
+  console.log('Highlighting option indices:', indices);
 
   try {
     // Find ALL mcq-view elements and pick the visible/active one (same as extraction)
@@ -357,28 +418,30 @@ function highlightCorrectAnswer(correctOptionIndex) {
       });
     });
 
-    // Highlight the correct answer
-    if (correctOptionIndex >= 0 && correctOptionIndex < optionElements.length) {
-      const correctElement = optionElements[correctOptionIndex];
-      correctElement.classList.add('ai-correct-answer');
+    // Highlight all correct answers
+    indices.forEach((correctOptionIndex) => {
+      if (correctOptionIndex >= 0 && correctOptionIndex < optionElements.length) {
+        const correctElement = optionElements[correctOptionIndex];
+        correctElement.classList.add('ai-correct-answer');
 
-      // Apply inline styles - green background with white text
-      correctElement.style.backgroundColor = '#22c55e';
-      correctElement.style.border = '3px solid #16a34a';
-      correctElement.style.borderRadius = '8px';
-      correctElement.style.boxShadow = '0 0 0 4px rgba(34, 197, 94, 0.2)';
-      correctElement.style.color = 'white';
+        // Apply inline styles - green background with white text
+        correctElement.style.backgroundColor = '#22c55e';
+        correctElement.style.border = '3px solid #16a34a';
+        correctElement.style.borderRadius = '8px';
+        correctElement.style.boxShadow = '0 0 0 4px rgba(34, 197, 94, 0.2)';
+        correctElement.style.color = 'white';
 
-      // Make sure all text inside is white
-      const textElements = correctElement.querySelectorAll('*');
-      textElements.forEach(el => {
-        el.style.color = 'white';
-      });
+        // Make sure all text inside is white
+        const textElements = correctElement.querySelectorAll('*');
+        textElements.forEach(el => {
+          el.style.color = 'white';
+        });
 
-      console.log(`✅ Highlighted option ${correctOptionIndex} as correct`);
-    } else {
-      console.log(`❌ Invalid option index: ${correctOptionIndex} (total options: ${optionElements.length})`);
-    }
+        console.log(`✅ Highlighted option ${correctOptionIndex} as correct`);
+      } else {
+        console.log(`❌ Invalid option index: ${correctOptionIndex} (total options: ${optionElements.length})`);
+      }
+    });
 
     console.log('=== Highlight Complete ===\n');
 
@@ -387,44 +450,44 @@ function highlightCorrectAnswer(correctOptionIndex) {
   }
 }
 
-// Function to create the helper buttons (simple and advanced)
+// Function to create the helper buttons (GPT and Gemini)
 function createHelperButton(targetDocument = document) {
   // Check if buttons already exist
-  if (document.getElementById('netacad-ai-helper-btn-simple')) {
+  if (document.getElementById('netacad-ai-helper-btn-gpt')) {
     console.log('Buttons already exist in main document');
     return;
   }
 
-  if (targetDocument !== document && targetDocument.getElementById('netacad-ai-helper-btn-simple')) {
+  if (targetDocument !== document && targetDocument.getElementById('netacad-ai-helper-btn-gpt')) {
     console.log('Buttons already exist in iframe');
     return;
   }
 
-  // Create Simple Button (Green)
-  const simpleButton = targetDocument.createElement('button');
-  simpleButton.id = 'netacad-ai-helper-btn-simple';
-  simpleButton.innerHTML = '🤖 Get AI Answer';
-  simpleButton.className = 'ai-helper-button ai-helper-button-simple';
+  // Create GPT Button (Blue)
+  const gptButton = targetDocument.createElement('button');
+  gptButton.id = 'netacad-ai-helper-btn-gpt';
+  gptButton.innerHTML = '🤖 Get Answer from GPT';
+  gptButton.className = 'ai-helper-button ai-helper-button-gpt';
 
-  // Create Advanced Button (Red)
-  const advancedButton = targetDocument.createElement('button');
-  advancedButton.id = 'netacad-ai-helper-btn-advanced';
-  advancedButton.innerHTML = '🔥 Advanced AI (Code/Math)';
-  advancedButton.className = 'ai-helper-button ai-helper-button-advanced';
+  // Create Gemini Button (Purple)
+  const geminiButton = targetDocument.createElement('button');
+  geminiButton.id = 'netacad-ai-helper-btn-gemini';
+  geminiButton.innerHTML = '✨ Get Answer from Gemini';
+  geminiButton.className = 'ai-helper-button ai-helper-button-gemini';
 
-  // Simple button click handler
-  simpleButton.addEventListener('click', async () => {
-    await handleButtonClick(simpleButton, 'simple', '🤖 Get AI Answer');
+  // GPT button click handler
+  gptButton.addEventListener('click', async () => {
+    await handleButtonClick(gptButton, 'gpt', '🤖 Get Answer from GPT');
   });
 
-  // Advanced button click handler
-  advancedButton.addEventListener('click', async () => {
-    await handleButtonClick(advancedButton, 'coding', '🔥 Advanced AI (Code/Math)');
+  // Gemini button click handler
+  geminiButton.addEventListener('click', async () => {
+    await handleButtonClick(geminiButton, 'gemini', '✨ Get Answer from Gemini');
   });
 
   // Add buttons to the target document body
-  targetDocument.body.appendChild(simpleButton);
-  targetDocument.body.appendChild(advancedButton);
+  targetDocument.body.appendChild(gptButton);
+  targetDocument.body.appendChild(geminiButton);
   console.log('AI helper buttons added to', targetDocument === document ? 'main page' : 'iframe');
 }
 
@@ -443,19 +506,28 @@ async function handleButtonClick(button, modelType, originalText) {
   }
 
   try {
-    // Send message to background script with model type
+    // Send message to background script with model type and multiple-answer info
     const response = await chrome.runtime.sendMessage({
       action: 'getAnswer',
       question: questionData.question,
       options: questionData.options.map(opt => opt.text),
-      modelType: modelType
+      modelType: modelType,
+      isMultipleAnswer: questionData.isMultipleAnswer,
+      requiredAnswers: questionData.requiredAnswers
     });
 
     console.log('AI Response received:', response);
 
     if (response.success) {
-      highlightCorrectAnswer(response.answerIndex);
-      button.innerHTML = '✅ Answer Highlighted';
+      // Handle both single answer (number) and multiple answers (array)
+      const answerIndices = Array.isArray(response.answerIndex) ? response.answerIndex : [response.answerIndex];
+      highlightCorrectAnswer(answerIndices);
+
+      const answerText = questionData.isMultipleAnswer
+        ? `✅ ${answerIndices.length} Answers Highlighted`
+        : '✅ Answer Highlighted';
+
+      button.innerHTML = answerText;
       setTimeout(() => {
         button.innerHTML = originalText;
         button.disabled = false;
@@ -483,7 +555,7 @@ function checkForQuiz() {
   const appRoot = document.querySelector('app-root');
   console.log('app-root element:', appRoot);
 
-  const buttonsExist = document.getElementById('netacad-ai-helper-btn-simple');
+  const buttonsExist = document.getElementById('netacad-ai-helper-btn-gpt');
   console.log('Buttons exist:', buttonsExist);
 
   if (appRoot && !buttonsExist) {
@@ -504,7 +576,7 @@ function tryCheckForQuiz() {
 
   checkForQuiz();
 
-  if (checkAttempts < maxAttempts && !document.getElementById('netacad-ai-helper-btn-simple')) {
+  if (checkAttempts < maxAttempts && !document.getElementById('netacad-ai-helper-btn-gpt')) {
     setTimeout(tryCheckForQuiz, 500);
   }
 }
@@ -519,7 +591,7 @@ function initialize() {
   // Also observe for dynamic content changes (for SPA navigation)
   const observer = new MutationObserver((mutations) => {
     // Only check if buttons don't exist
-    if (!document.getElementById('netacad-ai-helper-btn-simple')) {
+    if (!document.getElementById('netacad-ai-helper-btn-gpt')) {
       const appRoot = document.querySelector('app-root');
       if (appRoot) {
         console.log('app-root detected via mutation observer');

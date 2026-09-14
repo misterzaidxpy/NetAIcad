@@ -1,96 +1,65 @@
 // Background service worker for handling AI API requests
 
 const SYSTEM_PROMPT = `SYSTEM:
-You are an AI assistant that answers multiple-choice programming or math questions.
-You must always return only the correct option letter (A, B, C, or D) — nothing else.
+You are an AI assistant that answers multiple-choice questions with extreme precision.
 
-Rules:
-1. Think carefully before answering; simulate the code or calculate the math internally.
-2. Do not explain or include reasoning.
-3. Output only one character: A, B, C, or D.
-4. Never include punctuation, words, or extra spaces — only the letter.
+CRITICAL RULES - YOU MUST FOLLOW THESE EXACTLY:
+1. Think carefully before answering; simulate code or calculate math internally
+2. ONLY output the letter(s) specified in the prompt (e.g., A, B, C, D, E, F)
+3. If asked for ONE letter, provide EXACTLY ONE letter
+4. If asked for N letters, provide EXACTLY N letters separated by commas
+5. NEVER include explanations, reasoning, punctuation, or extra text
+6. NEVER output more or fewer letters than requested
+7. Follow the EXACT format specified in the user prompt
 
+Your response must contain ONLY the requested letter(s) and nothing else.
 End.
 `
 const temperature = 0;
 const top_p = 1.0;
-const max_tokens = 500;
+const max_tokens = 2000; // Increased for Gemini compatibility
 const presence_penalty = 0;
 const frequency_penalty = 0;
 
-// OpenRouter Model Mapping
-const OPENROUTER_MODELS = {
-  "DeepSeek": "deepseek/deepseek-v3.2-exp",
-  "GPT-5 Pro": "openai/gpt-5-pro",
-  "Claude Sonnet 4.5": "anthropic/claude-sonnet-4.5",
-  "Qwen3 Coder Plus": "qwen/qwen3-coder-plus",
-  "GLM": "z-ai/glm-4.6",
-  "Grok 4 Fast": "x-ai/grok-4-fast",
-  "GPT-5 Codex": "openai/gpt-5-codex",
-  "Qwen3 Coder Flash": "qwen/qwen3-coder-flash"
-};
-
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'getAnswer') {
-    handleGetAnswer(request.question, request.options, request.modelType)
+    handleGetAnswer(
+      request.question,
+      request.options,
+      request.modelType,
+      request.isMultipleAnswer,
+      request.requiredAnswers
+    )
       .then(result => sendResponse(result))
       .catch(error => sendResponse({ success: false, error: error.message }));
     return true; // Keep message channel open for async response
   }
 });
 
-async function handleGetAnswer(question, options, modelType = 'simple') {
+async function handleGetAnswer(question, options, modelType, isMultipleAnswer = false, requiredAnswers = 1) {
   try {
     // Get settings from storage
     const settings = await chrome.storage.sync.get([
-      'simpleModel', 
-      'codingModel', 
-      'openRouterApiKey',
-      'aiProvider',
-      'apiKey'
+      'geminiApiKey',
+      'openAiApiKey'
     ]);
 
-    // Determine which model to use based on modelType
-    let provider, modelId, apiKey;
-
-    if (modelType === 'simple') {
-      modelId = settings.simpleModel;
-    } else if (modelType === 'coding') {
-      modelId = settings.codingModel;
-    }
-
-    // Check if it's an OpenRouter model
-    if (modelId && OPENROUTER_MODELS[modelId]) {
-      provider = 'openrouter';
-      apiKey = settings.openRouterApiKey;
-      if (!apiKey) {
-        throw new Error('OpenRouter API key not configured. Please set it in the extension popup.');
-      }
-    } else if (modelId === 'groq' || modelId === 'gemini') {
-      // Legacy provider support
-      provider = modelId;
-      apiKey = settings.apiKey;
-      if (!apiKey) {
-        throw new Error('API key not configured. Please set it in the extension popup.');
-      }
-    } else {
-      // Fallback to old provider system if no model selected
-      provider = settings.aiProvider || 'groq';
-      apiKey = settings.apiKey;
-      if (!apiKey) {
-        throw new Error('API key not configured. Please set it in the extension popup.');
-      }
-    }
-
     let answerIndex;
-    if (provider === 'gemini') {
-      answerIndex = await getAnswerFromGemini(question, options, apiKey);
-    } else if (provider === 'groq') {
-      answerIndex = await getAnswerFromGroq(question, options, apiKey);
-    } else if (provider === 'openrouter') {
-      answerIndex = await getAnswerFromOpenRouter(question, options, modelId, apiKey);
+
+    if (modelType === 'gpt') {
+      const apiKey = settings.openAiApiKey;
+      if (!apiKey) {
+        throw new Error('OpenAI API key not configured. Please set it in the extension popup.');
+      }
+      answerIndex = await getAnswerFromOpenAI(question, options, apiKey, isMultipleAnswer, requiredAnswers);
+    } else if (modelType === 'gemini') {
+      const apiKey = settings.geminiApiKey;
+      if (!apiKey) {
+        throw new Error('Gemini API key not configured. Please set it in the extension popup.');
+      }
+      answerIndex = await getAnswerFromGemini(question, options, apiKey, isMultipleAnswer, requiredAnswers);
     } else {
-      throw new Error('Unknown AI provider: ' + provider);
+      throw new Error('Unknown model type: ' + modelType);
     }
 
     return { success: true, answerIndex: answerIndex };
@@ -100,22 +69,49 @@ async function handleGetAnswer(question, options, modelType = 'simple') {
   }
 }
 
-async function getAnswerFromGemini(question, options, apiKey) {
+async function getAnswerFromGemini(question, options, apiKey, isMultipleAnswer = false, requiredAnswers = 1) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
 
-  // Format options with letters
+  // Format options with letters (dynamically handle any number of options)
   const formattedOptions = options.map((opt, idx) =>
     `${String.fromCharCode(65 + idx)}. ${opt}`
   ).join('\n');
 
-  const prompt = `Answer this question with ONLY the letter (A, B, C, or D). No explanation.
+  // Get the available option letters dynamically
+  const availableLetters = options.map((_, idx) => String.fromCharCode(65 + idx)).join(', ');
+
+  let prompt;
+  if (isMultipleAnswer) {
+    prompt = `IMPORTANT: This is a multiple-answer question. You MUST select EXACTLY ${requiredAnswers} correct answer(s). Not more, not less.
+
+CRITICAL RULES:
+1. You MUST provide EXACTLY ${requiredAnswers} letters
+2. Separate letters with commas (e.g., "A,B" or "A,C,D")
+3. Only use available letters: ${availableLetters}
+4. No explanation, no extra text, no reasoning
+5. ONLY output the ${requiredAnswers} correct letter(s)
 
 Question: ${question}
 
 Options:
 ${formattedOptions}
 
-Answer with only the letter:`;
+Answer with EXACTLY ${requiredAnswers} letter(s) separated by commas:`;
+  } else {
+    prompt = `Answer this question with ONLY ONE letter from the available options: ${availableLetters}
+
+CRITICAL RULES:
+1. Output ONLY ONE letter
+2. No explanation, no extra text
+3. Only use available letters: ${availableLetters}
+
+Question: ${question}
+
+Options:
+${formattedOptions}
+
+Answer with only ONE letter:`;
+  }
 
   const requestBody = {
     contents: [{
@@ -125,10 +121,8 @@ Answer with only the letter:`;
     }],
     generationConfig: {
       temperature: temperature,
-      top_p: top_p,
-      max_tokens: max_tokens,
-      presence_penalty: presence_penalty,
-      frequency_penalty: frequency_penalty,
+      topP: top_p,
+      maxOutputTokens: max_tokens
     },
     safetySettings: [
       {
@@ -219,38 +213,98 @@ Answer with only the letter:`;
 
   console.log('Gemini answer text:', answerText);
 
-  // Extract letter from response (handles "A", "A.", "Answer: A", etc.)
-  const letterMatch = answerText.match(/[ABCD]/);
-  if (!letterMatch) {
-    throw new Error('Invalid answer format from Gemini: ' + answerText);
+  // Get valid letters based on number of options
+  const maxOptionIndex = options.length - 1;
+  const validLetters = options.map((_, idx) => String.fromCharCode(65 + idx)).join('');
+  const validLetterPattern = new RegExp(`[${validLetters}]`, 'g');
+
+  if (isMultipleAnswer) {
+    // Extract multiple letters from response (handles "A,B", "A, B", "A,C,D", etc.)
+    const letterMatches = answerText.match(validLetterPattern);
+    if (!letterMatches || letterMatches.length === 0) {
+      throw new Error(`Invalid answer format from Gemini. Expected letters from ${validLetters}, got: ${answerText}`);
+    }
+
+    // Convert letters to indices and remove duplicates
+    const answerIndices = [...new Set(letterMatches)].map(letter => letter.charCodeAt(0) - 65);
+
+    // Validate we have the correct number of answers
+    if (answerIndices.length !== requiredAnswers) {
+      console.warn(`⚠️ Gemini returned ${answerIndices.length} answers but ${requiredAnswers} were required. Trying to adjust...`);
+
+      // If we have too many, take the first N
+      if (answerIndices.length > requiredAnswers) {
+        answerIndices.splice(requiredAnswers);
+        console.log(`✂️ Trimmed to first ${requiredAnswers} answers:`, answerIndices);
+      } else {
+        // If we have too few, warn but continue
+        console.warn(`⚠️ Using ${answerIndices.length} answers instead of ${requiredAnswers}`);
+      }
+    }
+
+    console.log('Gemini answers:', letterMatches.join(','), 'Indices:', answerIndices);
+    return answerIndices;
+  } else {
+    // Extract single letter from response (handles "A", "A.", "Answer: A", etc.)
+    const letterMatch = answerText.match(validLetterPattern);
+    if (!letterMatch) {
+      throw new Error(`Invalid answer format from Gemini. Expected one letter from ${validLetters}, got: ${answerText}`);
+    }
+
+    const answerLetter = letterMatch[0];
+    const answerIndex = answerLetter.charCodeAt(0) - 65; // Convert A->0, B->1, etc.
+
+    console.log('Gemini answer:', answerLetter, 'Index:', answerIndex);
+    return answerIndex;
   }
-
-  const answerLetter = letterMatch[0];
-  const answerIndex = answerLetter.charCodeAt(0) - 65; // Convert A->0, B->1, etc.
-
-  console.log('Gemini answer:', answerLetter, 'Index:', answerIndex);
-  return answerIndex;
 }
 
-async function getAnswerFromOpenRouter(question, options, modelName, apiKey) {
-  const url = 'https://openrouter.ai/api/v1/chat/completions';
+async function getAnswerFromOpenAI(question, options, apiKey, isMultipleAnswer = false, requiredAnswers = 1) {
+  const url = 'https://api.openai.com/v1/chat/completions';
 
-  // Format options with letters
+  // Format options with letters (dynamically handle any number of options)
   const formattedOptions = options.map((opt, idx) =>
     `${String.fromCharCode(65 + idx)}. ${opt}`
   ).join('\n');
 
-  const prompt = `Answer this question with ONLY the letter (A, B, C, or D). No explanation.
+  // Get the available option letters dynamically
+  const availableLetters = options.map((_, idx) => String.fromCharCode(65 + idx)).join(', ');
+
+  let prompt;
+  if (isMultipleAnswer) {
+    prompt = `IMPORTANT: This is a multiple-answer question. You MUST select EXACTLY ${requiredAnswers} correct answer(s). Not more, not less.
+
+CRITICAL RULES:
+1. You MUST provide EXACTLY ${requiredAnswers} letters
+2. Separate letters with commas (e.g., "A,B" or "A,C,D")
+3. Only use available letters: ${availableLetters}
+4. No explanation, no extra text, no reasoning
+5. ONLY output the ${requiredAnswers} correct letter(s)
 
 Question: ${question}
 
 Options:
 ${formattedOptions}
 
-Answer with only the letter:`;
+Answer with EXACTLY ${requiredAnswers} letter(s) separated by commas:`;
+  } else {
+    prompt = `Answer this question with ONLY ONE letter from the available options: ${availableLetters}
+
+CRITICAL RULES:
+1. Output ONLY ONE letter
+2. No explanation, no extra text
+3. Only use available letters: ${availableLetters}
+
+Question: ${question}
+
+Options:
+${formattedOptions}
+
+Answer with only ONE letter:`;
+  }
 
   const requestBody = {
-    model: OPENROUTER_MODELS[modelName],
+    model: 'gpt-4o-mini',
     messages: [
       {
         role: 'system',
@@ -279,31 +333,24 @@ Answer with only the letter:`;
 
   const data = await response.json();
 
-  console.log('OpenRouter full response:', JSON.stringify(data, null, 2));
+  console.log('OpenAI full response:', JSON.stringify(data, null, 2));
   console.log('Response status:', response.status, response.statusText);
 
   if (!response.ok) {
-    console.error('OpenRouter API error response:', data);
-    throw new Error(`OpenRouter API error: ${data.error?.message || response.statusText}`);
+    console.error('OpenAI API error response:', data);
+    throw new Error(`OpenAI API error: ${data.error?.message || response.statusText}`);
   }
-
-  // Check response structure
-  console.log('data.choices:', data.choices);
-  console.log('data.choices[0]:', data.choices?.[0]);
-  console.log('data.choices[0].message:', data.choices?.[0]?.message);
-  console.log('data.choices[0].message.content:', data.choices?.[0]?.message?.content);
 
   const rawContent = data.choices?.[0]?.message?.content;
   const answerText = rawContent?.trim().toUpperCase();
 
   if (!answerText) {
-    console.error('Empty or undefined answer text from OpenRouter');
+    console.error('Empty or undefined answer text from OpenAI');
     console.error('Raw content:', rawContent);
     console.error('Finish reason:', data.choices?.[0]?.finish_reason);
     console.error('Full response data:', JSON.stringify(data, null, 2));
 
-    // More detailed error message
-    let errorDetails = 'No answer received from OpenRouter. ';
+    let errorDetails = 'No answer received from OpenAI. ';
     if (!data.choices) {
       errorDetails += 'Response has no choices array. ';
     } else if (data.choices.length === 0) {
@@ -316,98 +363,59 @@ Answer with only the letter:`;
       errorDetails += 'Message content is empty/whitespace. ';
     }
 
-    // Check if token limit was hit
     if (data.choices[0]?.finish_reason === 'length') {
-      errorDetails += 'Response was cut off due to token limit (increase max_tokens). ';
+      errorDetails += 'Response was cut off due to token limit. ';
     }
 
     errorDetails += 'Full response: ' + JSON.stringify(data);
-
     throw new Error(errorDetails);
   }
 
-  console.log('OpenRouter raw answer:', answerText);
+  console.log('OpenAI raw answer:', answerText);
 
-  // Extract letter from response
-  const letterMatch = answerText.match(/[ABCD]/);
-  if (!letterMatch) {
-    throw new Error('Invalid answer format from OpenRouter: ' + answerText);
-  }
+  // Get valid letters based on number of options
+  const maxOptionIndex = options.length - 1;
+  const validLetters = options.map((_, idx) => String.fromCharCode(65 + idx)).join('');
+  const validLetterPattern = new RegExp(`[${validLetters}]`, 'g');
 
-  const answerLetter = letterMatch[0];
-  const answerIndex = answerLetter.charCodeAt(0) - 65; // Convert A->0, B->1, etc.
+  if (isMultipleAnswer) {
+    // Extract multiple letters from response (handles "A,B", "A, B", "A,C,D", etc.)
+    const letterMatches = answerText.match(validLetterPattern);
+    if (!letterMatches || letterMatches.length === 0) {
+      throw new Error(`Invalid answer format from OpenAI. Expected letters from ${validLetters}, got: ${answerText}`);
+    }
 
-  console.log('OpenRouter answer:', answerLetter, 'Index:', answerIndex, 'Model:', modelName);
-  return answerIndex;
-}
+    // Convert letters to indices and remove duplicates
+    const answerIndices = [...new Set(letterMatches)].map(letter => letter.charCodeAt(0) - 65);
 
-async function getAnswerFromGroq(question, options, apiKey) {
-  const url = 'https://api.groq.com/openai/v1/chat/completions';
+    // Validate we have the correct number of answers
+    if (answerIndices.length !== requiredAnswers) {
+      console.warn(`⚠️ OpenAI returned ${answerIndices.length} answers but ${requiredAnswers} were required. Trying to adjust...`);
 
-  // Format options with letters
-  const formattedOptions = options.map((opt, idx) =>
-    `${String.fromCharCode(65 + idx)}. ${opt}`
-  ).join('\n');
-
-  const prompt = `Answer this question with ONLY the letter (A, B, C, or D). No explanation.
-
-Question: ${question}
-
-Options:
-${formattedOptions}
-
-Answer with only the letter:`;
-
-  const requestBody = {
-    model: 'llama-3.3-70b-versatile', // Fast and accurate model
-    messages: [
-      {
-        role: 'system',
-        content: SYSTEM_PROMPT
-      },
-      {
-        role: 'user',
-        content: prompt
+      // If we have too many, take the first N
+      if (answerIndices.length > requiredAnswers) {
+        answerIndices.splice(requiredAnswers);
+        console.log(`✂️ Trimmed to first ${requiredAnswers} answers:`, answerIndices);
+      } else {
+        // If we have too few, warn but continue
+        console.warn(`⚠️ Using ${answerIndices.length} answers instead of ${requiredAnswers}`);
       }
-    ],
-    temperature: temperature,
-    top_p: top_p,
-    max_tokens: max_tokens,
-    presence_penalty: presence_penalty,
-    frequency_penalty: frequency_penalty,
-  };
+    }
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`
-    },
-    body: JSON.stringify(requestBody)
-  });
+    console.log('OpenAI answers:', letterMatches.join(','), 'Indices:', answerIndices, 'Model: gpt-4o-mini');
+    return answerIndices;
+  } else {
+    // Extract single letter from response
+    const letterMatch = answerText.match(validLetterPattern);
+    if (!letterMatch) {
+      throw new Error(`Invalid answer format from OpenAI. Expected one letter from ${validLetters}, got: ${answerText}`);
+    }
 
-  const data = await response.json();
+    const answerLetter = letterMatch[0];
+    const answerIndex = answerLetter.charCodeAt(0) - 65;
 
-  if (!response.ok) {
-    throw new Error(`Groq API error: ${data.error?.message || response.statusText}`);
+    console.log('OpenAI answer:', answerLetter, 'Index:', answerIndex, 'Model: gpt-4o-mini');
+    return answerIndex;
   }
-
-  const answerText = data.choices[0]?.message?.content?.trim().toUpperCase();
-
-  if (!answerText) {
-    throw new Error('No answer received from Groq');
-  }
-
-  // Extract letter from response
-  const letterMatch = answerText.match(/[ABCD]/);
-  if (!letterMatch) {
-    throw new Error('Invalid answer format from Groq: ' + answerText);
-  }
-
-  const answerLetter = letterMatch[0];
-  const answerIndex = answerLetter.charCodeAt(0) - 65;
-
-  console.log('Groq answer:', answerLetter, 'Index:', answerIndex);
-  return answerIndex;
 }
 

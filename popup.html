@@ -93,51 +93,18 @@
   <h2>🤖 netAIcad | AI Powered Netacad Quiz Helper</h2>
 
   <div class="section">
-    <label for="simpleModel">Simple Questions Model:</label>
-    <select id="simpleModel">
-      <option value="">-- Select Model --</option>
-      <optgroup label="Legacy Providers (Use existing API Key)">
-        <option value="groq">Groq (Llama 3.3 - Fast & Free)</option>
-        <option value="gemini">Google Gemini (Free)</option>
-      </optgroup>
-      <optgroup label="OpenRouter Models (Requires OpenRouter API Key)">
-        <option value="DeepSeek">DeepSeek v3.2</option>
-        <option value="Qwen3 Coder Flash">Qwen3 Coder Flash</option>
-      </optgroup>
-    </select>
-    <div class="info">For general questions, trivia, and non-technical content</div>
-  </div>
-
-  <div class="section">
-    <label for="codingModel">Advanced (Coding/Math) Model:</label>
-    <select id="codingModel">
-      <option value="">-- Select Model --</option>
-      <optgroup label="OpenRouter Models (Requires OpenRouter API Key)">
-        <option value="Claude Sonnet 4.5">Claude Sonnet 4.5</option>
-        <option value="GPT-5 Pro">GPT-5 Pro</option>
-        <option value="GPT-5 Codex">GPT-5 Codex</option>
-        <option value="Qwen3 Coder Plus">Qwen3 Coder Plus</option>
-        <option value="Grok 4 Fast">Grok 4 Fast</option>
-        <option value="GLM">GLM 4.6</option>
-      </optgroup>
-    </select>
-    <div class="info">For programming, mathematics, and technical questions</div>
-  </div>
-
-  <div class="section">
-    <label for="openRouterApiKey">OpenRouter API Key:</label>
-    <input type="password" id="openRouterApiKey" placeholder="Enter OpenRouter API key (if using OpenRouter models)">
+    <label for="openAiApiKey">OpenAI API Key (GPT-4o Mini):</label>
+    <input type="password" id="openAiApiKey" placeholder="Enter your OpenAI API key">
     <div class="info">
-      Get your free API key from: <a href="https://openrouter.ai/keys" target="_blank">OpenRouter</a>
+      Get your API key from: <a href="https://platform.openai.com/api-keys" target="_blank">OpenAI Platform</a>
     </div>
   </div>
 
   <div class="section">
-    <label for="apiKey">Legacy Provider API Key:</label>
-    <input type="password" id="apiKey" placeholder="For Groq/Gemini only">
-    <div class="info" id="apiInfo">
-      <strong>Groq:</strong> <a href="https://console.groq.com/keys" target="_blank">Get Key</a> | 
-      <strong>Gemini:</strong> <a href="https://makersuite.google.com/app/apikey" target="_blank">Get Key</a>
+    <label for="geminiApiKey">Google Gemini API Key (Gemini 2.5 Flash):</label>
+    <input type="password" id="geminiApiKey" placeholder="Enter your Gemini API key">
+    <div class="info">
+      Get your free API key from: <a href="https://makersuite.google.com/app/apikey" target="_blank">Google AI Studio</a>
     </div>
   </div>
 
@@ -147,12 +114,11 @@
 
   <div class="instructions">
     <strong>How to use:</strong><br>
-    1. Select models for simple and advanced questions<br>
-    2. Enter the required API key(s)<br>
-    3. Click Save Settings<br>
-    4. Go to a Netacad quiz page<br>
-    5. Use the <strong>green button</strong> for general questions<br>
-    6. Use the <strong>red button</strong> for coding/math questions
+    1. Enter your OpenAI and/or Gemini API keys<br>
+    2. Click Save Settings<br>
+    3. Go to a Netacad quiz page<br>
+    4. Click <strong>"Get Answer from GPT"</strong> to use OpenAI<br>
+    5. Click <strong>"Get Answer from Gemini"</strong> to use Google Gemini
   </div>
 
   <div class="info">Created by <a href="https://zaid.sh" target="_blank">Muhammad Zaid 😎</a></div>

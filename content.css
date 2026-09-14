@@ -16,28 +16,28 @@
   text-align: center;
 }
 
-/* Simple Button (Green) */
-.ai-helper-button-simple {
+/* GPT Button (Blue) */
+.ai-helper-button-gpt {
   top: 80px;
-  background: linear-gradient(135deg, #6abf4b 0%, #5aa93d 100%);
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
 }
 
-.ai-helper-button-simple:hover {
+.ai-helper-button-gpt:hover {
   transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(106, 191, 75, 0.6);
-  background: linear-gradient(135deg, #7ed15f 0%, #6abf4b 100%);
+  box-shadow: 0 6px 16px rgba(59, 130, 246, 0.6);
+  background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 100%);
 }
 
-/* Advanced Button (Red) */
-.ai-helper-button-advanced {
+/* Gemini Button (Purple) */
+.ai-helper-button-gemini {
   top: 140px;
-  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+  background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
 }
 
-.ai-helper-button-advanced:hover {
+.ai-helper-button-gemini:hover {
   transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(239, 68, 68, 0.6);
-  background: linear-gradient(135deg, #f87171 0%, #ef4444 100%);
+  box-shadow: 0 6px 16px rgba(139, 92, 246, 0.6);
+  background: linear-gradient(135deg, #a78bfa 0%, #8b5cf6 100%);
 }
 
 .ai-helper-button:active {
@@ -110,12 +110,12 @@
     font-size: 13px !important;
     min-width: 160px;
   }
-  
-  .ai-helper-button-simple {
+
+  .ai-helper-button-gpt {
     top: 70px;
   }
-  
-  .ai-helper-button-advanced {
+
+  .ai-helper-button-gemini {
     top: 120px;
   }
 }
