@@ -4,10 +4,19 @@ console.log('Current URL:', window.location.href);
 
 // Function to search for elements in Shadow DOM
 function findInShadowDOM(selector, root = document) {
-  // First try to find in the regular DOM
-  let elements = Array.from(root.querySelectorAll(selector));
+  // Include root itself if it matches (needed when root is a custom element
+  // whose entire content lives in its own shadow root, e.g. a
+  // matching-dropdown-view row passed in directly by the module walker).
+  let elements = [];
+  if (root.matches && root.matches(selector)) elements.push(root);
 
-  // Then search in all shadow roots
+  // Then find in the regular DOM under root
+  elements = elements.concat(Array.from(root.querySelectorAll(selector)));
+
+  // If root itself has a shadow root, search inside it too
+  if (root.shadowRoot) elements = elements.concat(findInShadowDOM(selector, root.shadowRoot));
+
+  // Then search in all shadow roots of root's descendants
   const allElements = root.querySelectorAll('*');
   allElements.forEach(el => {
     if (el.shadowRoot) {
@@ -81,9 +90,17 @@ function findElementInShadowDOM(root, selector) {
 // Returns the element's center point in top-page viewport coordinates.
 // Assumes at most one level of iframe nesting (confirmed on the live course:
 // the course-content iframe is not itself further nested).
+//
+// Derives the frame from the ELEMENT's own document/window rather than the
+// calling script's `window`, since `window.frameElement` only reflects the
+// frame of the currently-executing script instance. The module walker's top-
+// frame script instance reaches into the content iframe's document directly
+// (see checkForCourseContent), so `window.frameElement` there is always null
+// even when `element` lives inside that iframe.
 function getAbsolutePageRect(element) {
   const rect = element.getBoundingClientRect();
-  const frame = window.frameElement; // null if this script instance is running in the top frame
+  const elementWindow = element.ownerDocument && element.ownerDocument.defaultView;
+  const frame = elementWindow ? elementWindow.frameElement : null; // null if element's own document is the top document
   const frameRect = frame ? frame.getBoundingClientRect() : { left: 0, top: 0 };
   return {
     x: frameRect.left + rect.left + rect.width / 2,
