@@ -130,7 +130,7 @@ async function robustClick(element, verify) {
 }
 
 // Function to extract question and options (based on iframe.js)
-async function extractQuestionData() {
+function extractMcqQuestionData() {
   console.log('=== Starting Question Extraction ===');
 
   try {
@@ -370,6 +370,65 @@ async function extractQuestionData() {
   }
 }
 
+function extractMatchingQuestionData() {
+  console.log('=== Starting Matching Question Extraction ===');
+  try {
+    const widgets = findInShadowDOM('.matching__widget', document);
+    const visibleWidgets = widgets.filter((w) => {
+      const style = window.getComputedStyle(w);
+      return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
+    });
+    const widget = visibleWidgets[visibleWidgets.length - 1] || widgets[widgets.length - 1];
+    if (!widget) {
+      console.log('❌ No matching widget found');
+      return null;
+    }
+
+    const rows = findInShadowDOM('matching-dropdown-view', widget);
+    if (rows.length === 0) {
+      console.log('❌ Matching widget has no rows');
+      return null;
+    }
+
+    const rowsWithOptions = [];
+    rows.forEach((row, index) => {
+      const promptEl = findInShadowDOM('.matching__item-title_inner', row)[0];
+      const prompt = promptEl ? promptEl.textContent.trim() : `Row ${index + 1}`;
+
+      const dropdownBtn = findInShadowDOM('.dropdown__btn.js-dropdown-btn', row)[0];
+      if (!dropdownBtn) return;
+
+      // Read-only: open the popup to read its option list, then close it
+      // again without selecting anything — extraction must not change state.
+      dropdownBtn.click();
+      const options = findInShadowDOM('.dropdown__item.js-dropdown-list-item', row.ownerDocument)
+        .filter((opt) => opt.offsetParent !== null)
+        .map((opt) => (opt.textContent || '').replace(/,\s*\d+\s*of\s*\d+.*$/i, '').trim());
+      dropdownBtn.click();
+
+      rowsWithOptions.push({ index, prompt, options });
+    });
+
+    if (rowsWithOptions.length === 0) {
+      console.log('❌ Could not read any matching row options');
+      return null;
+    }
+
+    console.log(`✅ Extracted ${rowsWithOptions.length} matching rows`);
+    console.log('=== Matching Extraction Complete ===\n');
+    return { isMatching: true, rows: rowsWithOptions };
+  } catch (error) {
+    console.error('❌ Error during matching extraction:', error);
+    return null;
+  }
+}
+
+async function extractQuestionData() {
+  const mcqData = extractMcqQuestionData();
+  if (mcqData) return mcqData;
+  return extractMatchingQuestionData();
+}
+
 // Function to highlight the correct answer(s)
 // correctOptionIndices can be a single index or an array of indices
 function highlightCorrectAnswer(correctOptionIndices) {
@@ -501,6 +560,38 @@ function highlightCorrectAnswer(correctOptionIndices) {
   }
 }
 
+function highlightMatchingAnswer(rowAnswers) {
+  console.log('=== Highlighting Matching Answers ===', rowAnswers);
+  try {
+    const widgets = findInShadowDOM('.matching__widget', document);
+    const visibleWidgets = widgets.filter((w) => {
+      const style = window.getComputedStyle(w);
+      return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
+    });
+    const widget = visibleWidgets[visibleWidgets.length - 1] || widgets[widgets.length - 1];
+    if (!widget) {
+      console.log('❌ Could not determine active matching widget for highlighting');
+      return;
+    }
+
+    const rows = findInShadowDOM('matching-dropdown-view', widget);
+    rows.forEach((row, index) => {
+      row.style.outline = '';
+      row.title = '';
+      const answer = rowAnswers.find((a) => a.index === index);
+      if (!answer) return;
+      row.style.outline = '3px solid #22c55e';
+      row.style.borderRadius = '8px';
+      row.title = `✓ AI suggests: ${answer.option}`;
+      console.log(`✅ Highlighted row ${index} suggestion: ${answer.option}`);
+    });
+
+    console.log('=== Matching Highlight Complete ===\n');
+  } catch (error) {
+    console.error('❌ Error during matching highlight:', error);
+  }
+}
+
 // Function to create the helper buttons (GPT and Gemini)
 function createHelperButton(targetDocument = document) {
   // Check if buttons already exist
@@ -629,28 +720,32 @@ async function handleButtonClick(button, modelType, originalText) {
   }
 
   try {
-    // Send message to background script with model type and multiple-answer info
-    const response = await chrome.runtime.sendMessage({
-      action: 'getAnswer',
-      question: questionData.question,
-      options: questionData.options.map(opt => opt.text),
-      modelType: modelType,
-      isMultipleAnswer: questionData.isMultipleAnswer,
-      requiredAnswers: questionData.requiredAnswers
-    });
+    const message = questionData.isMatching
+      ? { action: 'getAnswer', isMatching: true, rows: questionData.rows, modelType: modelType }
+      : {
+          action: 'getAnswer',
+          question: questionData.question,
+          options: questionData.options.map(opt => opt.text),
+          modelType: modelType,
+          isMultipleAnswer: questionData.isMultipleAnswer,
+          requiredAnswers: questionData.requiredAnswers
+        };
+
+    const response = await chrome.runtime.sendMessage(message);
 
     console.log('AI Response received:', response);
 
     if (response.success) {
-      // Handle both single answer (number) and multiple answers (array)
-      const answerIndices = Array.isArray(response.answerIndex) ? response.answerIndex : [response.answerIndex];
-      highlightCorrectAnswer(answerIndices);
-
-      const answerText = questionData.isMultipleAnswer
-        ? `✅ ${answerIndices.length} Answers Highlighted`
-        : '✅ Answer Highlighted';
-
-      button.innerHTML = answerText;
+      if (questionData.isMatching) {
+        highlightMatchingAnswer(response.rowAnswers);
+        button.innerHTML = '✅ Matches Highlighted';
+      } else {
+        const answerIndices = Array.isArray(response.answerIndex) ? response.answerIndex : [response.answerIndex];
+        highlightCorrectAnswer(answerIndices);
+        button.innerHTML = questionData.isMultipleAnswer
+          ? `✅ ${answerIndices.length} Answers Highlighted`
+          : '✅ Answer Highlighted';
+      }
       setTimeout(() => {
         button.innerHTML = originalText;
         button.disabled = false;
