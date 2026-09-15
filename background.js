@@ -30,23 +30,13 @@ const frequency_penalty = 0;
 const WEB_AI_SITES = {
   'chatgpt-web': {
     url: 'https://chatgpt.com/',
-    windowKey: 'chatgpt',
     siteName: 'ChatGPT',
-    left: 20,
-    top: 20,
   },
   'gemini-web': {
     url: 'https://gemini.google.com/app',
-    windowKey: 'gemini',
     siteName: 'Gemini',
-    left: 520,
-    top: 20,
   },
 };
-
-// In-memory only: service workers can be evicted and this will reset, which
-// is fine — ensureWebAiTab() always re-validates before reusing an entry.
-const webAiWindows = {};
 
 function waitForTabLoad(tabId, timeoutMs = 20000) {
   return new Promise((resolve, reject) => {
@@ -76,36 +66,34 @@ function waitForTabLoad(tabId, timeoutMs = 20000) {
   });
 }
 
-async function ensureWebAiTab(modelType) {
+async function ensureWebAiTab(modelType, windowId) {
   const config = WEB_AI_SITES[modelType];
-  const existing = webAiWindows[config.windowKey];
 
-  if (existing) {
-    try {
-      const tab = await chrome.tabs.get(existing.tabId);
-      if (tab) {
-        return existing.tabId;
-      }
-    } catch (e) {
-      // Tab (or its window) no longer exists; fall through and recreate it.
-    }
+  // Look for an already-open tab on the site rather than tracking the tab ID
+  // in a plain in-memory variable: MV3 service workers get evicted after
+  // ~30s of inactivity (routine between quiz questions), which would reset
+  // any in-memory map and silently spawn a fresh tab — and a fresh
+  // conversation — on every single click. Querying live tabs works
+  // correctly regardless of whether the worker was just restarted.
+  const urlPattern = new URL(config.url).origin + '/*';
+  const existingTabs = await chrome.tabs.query({ url: urlPattern });
+  if (existingTabs.length > 0) {
+    return existingTabs[0].id;
   }
 
-  const win = await chrome.windows.create({
+  // Open as a normal tab in the same browser window as the quiz — not a
+  // separate OS-level popup window — so everything stays in one place.
+  // `active: false` keeps focus on the quiz tab so the automation doesn't
+  // yank the user away from what they're doing; they can switch to it at
+  // any time to watch progress.
+  const tab = await chrome.tabs.create({
     url: config.url,
-    type: 'normal',
-    focused: false,
-    width: 480,
-    height: 720,
-    left: config.left,
-    top: config.top,
+    windowId,
+    active: false,
   });
 
-  const tabId = win.tabs[0].id;
-  webAiWindows[config.windowKey] = { tabId };
-
-  await waitForTabLoad(tabId);
-  return tabId;
+  await waitForTabLoad(tab.id);
+  return tab.id;
 }
 
 async function chatgptWebAutomationInPage(prompt) {
@@ -117,16 +105,36 @@ async function chatgptWebAutomationInPage(prompt) {
     return null;
   }
 
-  const input = query(['#prompt-textarea', '[contenteditable="true"][id*="prompt"]', 'div[contenteditable="true"]']);
+  // A freshly-opened tab reports "complete" (document load) well before
+  // ChatGPT's SPA finishes hydrating and rendering the actual chat input —
+  // confirmed live: the input reliably exists once the page settles, but
+  // checking immediately raced it and produced a false "not logged in"
+  // error. Poll for it instead of checking once.
+  let input = null;
+  const inputDeadline = Date.now() + 15000;
+  while (Date.now() < inputDeadline) {
+    input = query(['#prompt-textarea', '[contenteditable="true"][id*="prompt"]', 'div[contenteditable="true"]']);
+    if (input) break;
+    await new Promise((r) => setTimeout(r, 500));
+  }
   if (!input) {
     return { success: false, error: 'not-logged-in-or-selector-changed' };
   }
 
-  input.focus();
-  document.execCommand('selectAll', false, null);
-  document.execCommand('delete', false, null);
-  document.execCommand('insertText', false, prompt);
-  await new Promise((r) => setTimeout(r, 400));
+  // Same defensive verify as Gemini's automation below — make sure the full
+  // prompt actually landed in the input before sending, retrying a couple of
+  // times if not (most likely to matter right after the tab was activated).
+  let typedOk = false;
+  for (let attempt = 0; attempt < 3 && !typedOk; attempt++) {
+    input.focus();
+    document.execCommand('selectAll', false, null);
+    document.execCommand('delete', false, null);
+    document.execCommand('insertText', false, prompt);
+    await new Promise((r) => setTimeout(r, 400));
+    const typedText = (input.textContent || '').replace(/\s+/g, ' ').trim();
+    const expectedText = prompt.replace(/\s+/g, ' ').trim();
+    typedOk = typedText.length >= expectedText.length * 0.9;
+  }
 
   const sendBtn = query(['[data-testid="send-button"]', 'button[aria-label="Send prompt"]', 'button[aria-label="Send"]']);
   if (sendBtn) {
@@ -172,16 +180,36 @@ async function geminiWebAutomationInPage(prompt) {
     return null;
   }
 
-  const input = query(['.ql-editor[contenteditable="true"]', 'rich-textarea [contenteditable="true"]', 'div[contenteditable="true"]']);
+  // Same SPA-hydration race as ChatGPT — poll instead of checking once.
+  let input = null;
+  const inputDeadline = Date.now() + 15000;
+  while (Date.now() < inputDeadline) {
+    input = query(['.ql-editor[contenteditable="true"]', 'rich-textarea [contenteditable="true"]', 'div[contenteditable="true"]']);
+    if (input) break;
+    await new Promise((r) => setTimeout(r, 500));
+  }
   if (!input) {
     return { success: false, error: 'not-logged-in-or-selector-changed' };
   }
 
-  input.focus();
-  document.execCommand('selectAll', false, null);
-  document.execCommand('delete', false, null);
-  document.execCommand('insertText', false, prompt);
-  await new Promise((r) => setTimeout(r, 400));
+  // Confirmed live: on Gemini's rich-text (.ql-editor) input, insertText
+  // occasionally only lands part of a multi-line prompt (observed: just the
+  // "ignore previous questions" prefix went in, and Gemini answered that
+  // alone instead of the real question) — most often when the tab wasn't
+  // focused yet when this ran. Verify the full text actually landed before
+  // sending, retrying a couple of times rather than firing off a
+  // known-incomplete prompt.
+  let typedOk = false;
+  for (let attempt = 0; attempt < 3 && !typedOk; attempt++) {
+    input.focus();
+    document.execCommand('selectAll', false, null);
+    document.execCommand('delete', false, null);
+    document.execCommand('insertText', false, prompt);
+    await new Promise((r) => setTimeout(r, 400));
+    const typedText = (input.textContent || '').replace(/\s+/g, ' ').trim();
+    const expectedText = prompt.replace(/\s+/g, ' ').trim();
+    typedOk = typedText.length >= expectedText.length * 0.9;
+  }
 
   const sendBtn = query(['button[aria-label="Send message"]']);
   if (sendBtn && !sendBtn.disabled) {
@@ -220,10 +248,20 @@ function wrapWebAiPrompt(prompt) {
   return prefix + prompt;
 }
 
-async function askWebAi(modelType, prompt) {
+async function askWebAi(modelType, prompt, windowId, originTabId) {
   const config = WEB_AI_SITES[modelType];
-  const tabId = await ensureWebAiTab(modelType);
+  const tabId = await ensureWebAiTab(modelType, windowId);
   const func = modelType === 'chatgpt-web' ? chatgptWebAutomationInPage : geminiWebAutomationInPage;
+
+  // Confirmed live: ChatGPT/Gemini only reliably type into and render
+  // updates to their chat UI while their tab is the active tab in its
+  // window — a background tab defers rendering (streamed replies never
+  // appeared in the DOM) and, for Gemini's rich-text editor specifically,
+  // even truncated what got typed in. Automate the "bring it to the front"
+  // step that previously required the user to manually switch tabs, then
+  // switch back to the quiz tab afterward so their view doesn't stay stuck
+  // on the Web AI tab.
+  await chrome.tabs.update(tabId, { active: true }).catch(() => {});
 
   let results;
   try {
@@ -235,6 +273,10 @@ async function askWebAi(modelType, prompt) {
     });
   } catch (e) {
     throw new Error(`Lost connection to the ${config.siteName} tab (it may have been closed or navigated away). Please try again.`);
+  } finally {
+    if (originTabId) {
+      await chrome.tabs.update(originTabId, { active: true }).catch(() => {});
+    }
   }
 
   const result = results && results[0] ? results[0].result : null;
@@ -279,8 +321,13 @@ async function handleRobustClickCdp(tabId, x, y) {
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'getAnswer') {
+    // Web AI needs to know which browser window/tab the quiz lives in so the
+    // ChatGPT/Gemini tab opens alongside it (instead of in its own window)
+    // and focus can be handed back to the quiz tab once the answer is in.
+    const windowId = sender.tab && sender.tab.windowId;
+    const originTabId = sender.tab && sender.tab.id;
     if (request.isMatching) {
-      handleGetMatchingAnswer(request.rows, request.modelType)
+      handleGetMatchingAnswer(request.rows, request.modelType, windowId, originTabId)
         .then(result => sendResponse(result))
         .catch(error => sendResponse({ success: false, error: error.message }));
       return true;
@@ -290,7 +337,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       request.options,
       request.modelType,
       request.isMultipleAnswer,
-      request.requiredAnswers
+      request.requiredAnswers,
+      windowId,
+      originTabId
     )
       .then(result => sendResponse(result))
       .catch(error => sendResponse({ success: false, error: error.message }));
@@ -304,7 +353,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 });
 
-async function handleGetAnswer(question, options, modelType, isMultipleAnswer = false, requiredAnswers = 1) {
+async function handleGetAnswer(question, options, modelType, isMultipleAnswer = false, requiredAnswers = 1, windowId, originTabId) {
   try {
     // Get settings from storage
     const settings = await chrome.storage.sync.get([
@@ -328,7 +377,7 @@ async function handleGetAnswer(question, options, modelType, isMultipleAnswer = 
       answerIndex = await getAnswerFromGemini(question, options, apiKey, isMultipleAnswer, requiredAnswers);
     } else if (modelType === 'chatgpt-web' || modelType === 'gemini-web') {
       const prompt = wrapWebAiPrompt(buildPrompt(question, options, isMultipleAnswer, requiredAnswers));
-      const rawText = await askWebAi(modelType, prompt);
+      const rawText = await askWebAi(modelType, prompt, windowId, originTabId);
       answerIndex = parseAnswerLetters(rawText, options, isMultipleAnswer, requiredAnswers);
     } else {
       throw new Error('Unknown model type: ' + modelType);
@@ -341,7 +390,7 @@ async function handleGetAnswer(question, options, modelType, isMultipleAnswer = 
   }
 }
 
-async function handleGetMatchingAnswer(rows, modelType) {
+async function handleGetMatchingAnswer(rows, modelType, windowId, originTabId) {
   try {
     const settings = await chrome.storage.sync.get(['geminiApiKey', 'openAiApiKey']);
     let rowAnswers;
@@ -359,7 +408,7 @@ async function handleGetMatchingAnswer(rows, modelType) {
       }
       rowAnswers = await getMatchingAnswerFromGemini(rows, apiKey);
     } else if (modelType === 'chatgpt-web' || modelType === 'gemini-web') {
-      const rawText = await askWebAi(modelType, wrapWebAiPrompt(buildMatchingPrompt(rows)));
+      const rawText = await askWebAi(modelType, wrapWebAiPrompt(buildMatchingPrompt(rows)), windowId, originTabId);
       rowAnswers = parseMatchingAnswer(rawText, rows);
     } else {
       throw new Error('Unknown model type: ' + modelType);
