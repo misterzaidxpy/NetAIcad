@@ -1,2 +1,5 @@
 .env
 .cursor
+.superpowers/
+docs/
+scripts/

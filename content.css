@@ -1,19 +1,26 @@
-/* Helper button styling - Base */
+/* Helper button styling - Base.
+   Compact circular icon buttons (not wide text pills) so the floating
+   toolbar doesn't cover page content. Each button's label lives in its
+   `title` attribute (native browser tooltip on hover) instead of on-button
+   text. */
 .ai-helper-button {
   position: fixed;
   right: 20px;
   z-index: 10000;
-  padding: 12px 24px;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   color: white;
   border: none;
-  border-radius: 8px;
-  font-size: 16px !important;
-  font-weight: 600 !important;
+  border-radius: 50%;
   cursor: pointer;
-  transition: all 0.3s ease;
-  font-family: Arial, Helvetica, sans-serif !important;
-  min-width: 200px;
-  text-align: center;
+  transition: all 0.2s ease;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.25);
+  font-size: 18px; /* sizes the plain-emoji loading/success states */
+  line-height: 1;
 }
 
 /* GPT Button (Blue) */
@@ -23,21 +30,83 @@
 }
 
 .ai-helper-button-gpt:hover {
-  transform: translateY(-2px);
+  transform: translateY(-2px) scale(1.05);
   box-shadow: 0 6px 16px rgba(59, 130, 246, 0.6);
   background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 100%);
 }
 
 /* Gemini Button (Purple) */
 .ai-helper-button-gemini {
-  top: 140px;
+  top: 132px;
   background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
 }
 
 .ai-helper-button-gemini:hover {
-  transform: translateY(-2px);
+  transform: translateY(-2px) scale(1.05);
   box-shadow: 0 6px 16px rgba(139, 92, 246, 0.6);
   background: linear-gradient(135deg, #a78bfa 0%, #8b5cf6 100%);
+}
+
+/* Web AI Button (Green) */
+.ai-helper-button-webai {
+  top: 184px;
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+}
+
+.ai-helper-button-webai:hover {
+  transform: translateY(-2px) scale(1.05);
+  box-shadow: 0 6px 16px rgba(16, 185, 129, 0.6);
+  background: linear-gradient(135deg, #34d399 0%, #10b981 100%);
+}
+
+/* Module Walker Button (Amber) */
+.ai-helper-button-walker {
+  top: 236px;
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+}
+
+.ai-helper-button-walker:hover {
+  transform: translateY(-2px) scale(1.05);
+  box-shadow: 0 6px 16px rgba(245, 158, 11, 0.6);
+  background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+}
+
+/* Module Walker Progress Overlay */
+.ai-walker-overlay {
+  position: fixed;
+  left: 20px;
+  bottom: 20px;
+  z-index: 10001;
+  background: #1f2937;
+  color: white;
+  padding: 12px 16px;
+  border-radius: 8px;
+  font-size: 13px !important;
+  font-family: Arial, Helvetica, sans-serif !important;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  max-width: 360px;
+}
+
+.ai-walker-overlay-status {
+  flex: 1;
+}
+
+.ai-walker-overlay-stop {
+  background: #ef4444;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  cursor: pointer;
+}
+
+.ai-walker-overlay-stop:hover {
+  background: #dc2626;
 }
 
 .ai-helper-button:active {
@@ -106,9 +175,8 @@
 @media (max-width: 768px) {
   .ai-helper-button {
     right: 10px;
-    padding: 10px 16px;
-    font-size: 13px !important;
-    min-width: 160px;
+    width: 40px;
+    height: 40px;
   }
 
   .ai-helper-button-gpt {
@@ -116,6 +184,20 @@
   }
 
   .ai-helper-button-gemini {
-    top: 120px;
+    top: 118px;
+  }
+
+  .ai-helper-button-webai {
+    top: 166px;
+  }
+
+  .ai-helper-button-walker {
+    top: 214px;
+  }
+
+  .ai-walker-overlay {
+    left: 10px;
+    bottom: 10px;
+    max-width: calc(100% - 20px);
   }
 }

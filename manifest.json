@@ -5,10 +5,15 @@
   "description": "netAIcad is an AI-powered quiz helper for Netacad that highlights correct answers",
   "permissions": [
     "storage",
-    "activeTab"
+    "activeTab",
+    "scripting",
+    "tabs",
+    "debugger"
   ],
   "host_permissions": [
-    "*://*.netacad.com/*"
+    "*://*.netacad.com/*",
+    "https://chatgpt.com/*",
+    "https://gemini.google.com/*"
   ],
   "action": {
     "default_popup": "popup.html",
